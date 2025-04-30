@@ -103,7 +103,27 @@ namespace PKISharp.WACS.Plugins.InstallationPlugins
                 }
             }
 
-            foreach (var part in _target.Parts)
+            // Convert site-specific binding options to dictionary
+            var siteBindingOptions = _options.Sites.ToDictionary(s => s.SiteId, s => s);
+
+            // Replace parts with site-specific binding options
+            // if no site ID is provided by the source plugin
+            // and site-specific binding options are available
+            var parts = _target.Parts.ToList();
+            if (parts.All(p => !p.SiteId.HasValue) && _options.Sites.Count > 0)
+            {
+                parts = new List<TargetPart>();
+                foreach (var part in _target.Parts)
+                {
+                    foreach (var site in _options.Sites)
+                    {
+                        part.SiteId = site.SiteId;
+                        parts.Add(part);
+                    }
+                }
+            }
+
+            foreach (var part in parts)
             {
                 // Use source plugin provided ID
                 // with override by installation site ID (for non-IIS source)
@@ -149,6 +169,12 @@ namespace PKISharp.WACS.Plugins.InstallationPlugins
                                 WithSiteId(part.SiteId.Value);
                         }
                         bindingOptions = bindingOptions.WithUpdateOnly(_options.UpdateOnly);
+
+                        if (bindingOptions.SiteId.HasValue && siteBindingOptions.ContainsKey(bindingOptions.SiteId.Value))
+                        {
+                            // Update binding options with site specific options
+                            bindingOptions = siteBindingOptions[bindingOptions.SiteId.Value].BindingOptions(bindingOptions);
+                        }
 
                         _iisClient.UpdateHttpSite(httpIdentifiers, bindingOptions, oldCertificate?.GetHash(), newCertificate.SanNames);
                         if (certificateStore)
