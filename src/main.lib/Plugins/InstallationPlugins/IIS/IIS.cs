@@ -53,7 +53,7 @@ namespace PKISharp.WACS.Plugins.InstallationPlugins
             var installationSite = default(IIISSite);
             if (options.SiteId != null)
             {
-                try 
+                try
                 {
                     installationSite = iisClient.GetSite(options.SiteId.Value);
                 }
@@ -65,20 +65,6 @@ namespace PKISharp.WACS.Plugins.InstallationPlugins
                     // anymore, but that's not a fatal error.
                     log.Warning(ex, "Installation site {id} not found running in IIS, only existing bindings will be updated", options.SiteId);
                 }
-            }
-            foreach (var part in target.Parts)
-            {
-                // Use source plugin provided ID
-                // with override by installation site ID (for non-IIS source)
-                // for missing site the value might stay null, which means
-                // only pre-existing bindings will be updated an no new
-                // bindings can be created.
-                part.SiteId ??= installationSite?.Id;
-
-                // Use source plugin provided type
-                // with override by installation site type (for non-IIS source)
-                // with override by plugin variant (for missing installation sites)
-                part.SiteType ??= installationSite?.Type ?? (options is IISFtpOptions ? IISSiteType.Ftp : IISSiteType.Web);
             }
 
             if (centralSsl)
@@ -103,11 +89,23 @@ namespace PKISharp.WACS.Plugins.InstallationPlugins
                     // available to the CertificateStore plugin.
                     log.Error(reason);
                     throw new InvalidOperationException(reason);
-                } 
+                }
             }
 
             foreach (var part in target.Parts)
             {
+                // Use source plugin provided ID
+                // with override by installation site ID (for non-IIS source)
+                // for missing site the value might stay null, which means
+                // only pre-existing bindings will be updated an no new
+                // bindings can be created.
+                part.SiteId ??= installationSite?.Id;
+
+                // Use source plugin provided type
+                // with override by installation site type (for non-IIS source)
+                // with override by plugin variant (for missing installation sites)
+                part.SiteType ??= installationSite?.Type ?? (options is IISFtpOptions ? IISSiteType.Ftp : IISSiteType.Web);
+
                 var httpIdentifiers = part.Identifiers.OfType<DnsIdentifier>();
                 var bindingOptions = new BindingOptions();
 
@@ -139,8 +137,10 @@ namespace PKISharp.WACS.Plugins.InstallationPlugins
                             bindingOptions = bindingOptions.
                                 WithSiteId(part.SiteId.Value);
                         }
+                        bindingOptions = bindingOptions.WithUpdateOnly(options.UpdateOnly);
+
                         iisClient.UpdateHttpSite(httpIdentifiers, bindingOptions, oldCertificate?.GetHash(), newCertificate.SanNames);
-                        if (certificateStore) 
+                        if (certificateStore)
                         {
                             iisClient.UpdateFtpSite(0, certificateStoreName, newCertificate, oldCertificate);
                         }

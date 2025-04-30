@@ -19,6 +19,7 @@ namespace PKISharp.WACS.Clients.IIS
     /// <param name="store"></param>
     /// <param name="host"></param>
     /// <param name="siteId"></param>
+    /// <param name="updateOnly"></param>
     [DebuggerDisplay("Binding {Binding}")]
     public class BindingOptions(
         SSLFlags flags = SSLFlags.None,
@@ -27,7 +28,8 @@ namespace PKISharp.WACS.Clients.IIS
         IEnumerable<byte>? thumbprint = null,
         string? store = null,
         string host = "",
-        long? siteId = null)
+        long? siteId = null,
+        bool updateOnly = IISClient.DefaultUpdateOnly)
     {
         /// <summary>
         /// Desired flags 
@@ -65,6 +67,11 @@ namespace PKISharp.WACS.Clients.IIS
         public long? SiteId { get; } = siteId;
 
         /// <summary>
+        /// Optional: UpdateOnly flag to indicate that whether new bindings should be created
+        /// </summary>
+        public bool UpdateOnly { get; } = updateOnly;
+
+        /// <summary>
         /// Binding string to use in IIS
         /// </summary>
         public string Binding 
@@ -91,12 +98,13 @@ namespace PKISharp.WACS.Clients.IIS
       
         public override string ToString() => Binding;
 
-        public BindingOptions WithFlags(SSLFlags flags) => new(flags, Port, IP, Thumbprint, Store, Host, SiteId);
-        public BindingOptions WithPort(int port) => new(Flags, port, IP, Thumbprint, Store, Host, SiteId);
-        public BindingOptions WithIP(string ip) => new(Flags, Port, ip, Thumbprint, Store, Host, SiteId);
-        public BindingOptions WithThumbprint(byte[] thumbprint) => new(Flags, Port, IP, thumbprint, Store, Host, SiteId);
-        public BindingOptions WithStore(string? store) => new(Flags, Port, IP, Thumbprint, store, Host, SiteId);
-        public BindingOptions WithHost(string hostName) => new(Flags, Port, IP, Thumbprint, Store, hostName, SiteId);
-        public BindingOptions WithSiteId(long? siteId) => new(Flags, Port, IP, Thumbprint, Store, Host, siteId);
+        public BindingOptions WithFlags(SSLFlags flags) => new(flags, Port, IP, Thumbprint, Store, Host, SiteId, UpdateOnly);
+        public BindingOptions WithPort(int port) => new(Flags, port, IP, Thumbprint, Store, Host, SiteId, UpdateOnly);
+        public BindingOptions WithIP(string ip) => new(Flags, Port, ip, Thumbprint, Store, Host, SiteId, UpdateOnly);
+        public BindingOptions WithThumbprint(byte[] thumbprint) => new(Flags, Port, IP, thumbprint, Store, Host, SiteId, UpdateOnly);
+        public BindingOptions WithStore(string? store) => new(Flags, Port, IP, Thumbprint, store, Host, SiteId, UpdateOnly);
+        public BindingOptions WithHost(string hostName) => new(Flags, Port, IP, Thumbprint, Store, hostName, SiteId, UpdateOnly);
+        public BindingOptions WithSiteId(long? siteId) => new(Flags, Port, IP, Thumbprint, Store, Host, siteId, UpdateOnly);
+        public BindingOptions WithUpdateOnly(bool withUpdatesOnly) => new(Flags, Port, IP, Thumbprint, Store, Host, SiteId, withUpdatesOnly);
     }
 }

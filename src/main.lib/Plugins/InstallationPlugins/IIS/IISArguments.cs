@@ -20,5 +20,8 @@ namespace PKISharp.WACS.Plugins.InstallationPlugins
 
         [CommandLine(Name = SslIpParameterName, Description = "IP address to use for newly created HTTPS bindings. Defaults to " + IISClient.DefaultBindingIp + ".")]
         public string? SSLIPAddress { get; set; }
+
+        [CommandLine(Description = "Flag to indicate whether new bindings should be created.")]
+        public bool UpdateOnly { get; set; } = IISClient.DefaultUpdateOnly;
     }
 }

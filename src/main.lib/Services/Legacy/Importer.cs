@@ -1,4 +1,4 @@
-﻿using PKISharp.WACS.Clients.Acme;
+using PKISharp.WACS.Clients.Acme;
 using PKISharp.WACS.Configuration;
 using PKISharp.WACS.Configuration.Arguments;
 using PKISharp.WACS.DomainObjects;
