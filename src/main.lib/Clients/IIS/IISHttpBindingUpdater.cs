@@ -263,7 +263,7 @@ namespace PKISharp.WACS.Clients.IIS
             var bindingInfoShort = $"{options.IP}:{options.Port}";
             var bindingInfoFull = $"{bindingInfoShort}:{options.Host}";
 
-            if (options.UpdateOnly == false)
+            if (options.UpdateOnly == true)
             {
                 log.Information($"UpdateOnly is set to true, not adding new binding for {bindingInfoFull}");
                 return false;
