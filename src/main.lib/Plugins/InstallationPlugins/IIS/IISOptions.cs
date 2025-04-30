@@ -1,4 +1,5 @@
-﻿using PKISharp.WACS.Plugins.Base.Options;
+﻿using PKISharp.WACS.Clients.IIS;
+using PKISharp.WACS.Plugins.Base.Options;
 using PKISharp.WACS.Services;
 
 namespace PKISharp.WACS.Plugins.InstallationPlugins
@@ -8,6 +9,7 @@ namespace PKISharp.WACS.Plugins.InstallationPlugins
         public long? SiteId { get; set; }
         public string? NewBindingIp { get; set; }
         public int? NewBindingPort { get; set; }
+        public bool UpdateOnly { get; set; } = IISClient.DefaultUpdateOnly;
 
         /// <summary>
         /// Show details to the user
@@ -27,6 +29,10 @@ namespace PKISharp.WACS.Plugins.InstallationPlugins
             if (NewBindingPort != null)
             {
                 input.Show("NewBindingPort", NewBindingPort.ToString(), level: 2);
+            }
+            if (UpdateOnly != IISClient.DefaultUpdateOnly)
+            {
+                input.Show("UpdateOnly", UpdateOnly.ToString(), level: 2);
             }
         }
     }

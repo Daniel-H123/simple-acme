@@ -47,12 +47,16 @@ namespace PKISharp.WACS.Plugins.InstallationPlugins
             Validate(x => Task.FromResult(_iisClient.GetSite(x!.Value) != null), "invalid site").
             Validate(x => Task.FromResult(_iisClient.GetSite(x!.Value).Type == IISSiteType.Ftp), "not an ftp site");
 
+        private ArgumentResult<bool?> UpdateOnly => _arguments.
+            GetBool<IISArguments>(x => x.UpdateOnly);
+
         public override async Task<TOptions?> Aquire(IInputService inputService, RunLevel runLevel)
         {
             var ret = new TOptions()
             {
                 NewBindingPort = await NewBindingPort.GetValue(),
-                NewBindingIp = await NewBindingIp.GetValue()
+                NewBindingIp = await NewBindingIp.GetValue(),
+                UpdateOnly = (bool) await UpdateOnly.GetValue()
             };
 
             var explained = false;
@@ -73,7 +77,7 @@ namespace PKISharp.WACS.Plugins.InstallationPlugins
                     "the same site where the HTTP binding for that host was found.");
                 explained = true;
             };
-            
+           
             var askSite = !_target.IIS;
             if (_target.IIS && runLevel.HasFlag(RunLevel.Advanced))
             {
@@ -99,7 +103,8 @@ namespace PKISharp.WACS.Plugins.InstallationPlugins
             {
                 NewBindingPort = await NewBindingPort.GetValue(),
                 NewBindingIp = await NewBindingIp.GetValue(),
-                SiteId = siteId
+                SiteId = siteId, 
+                UpdateOnly = (bool) await UpdateOnly.GetValue()
             };
             return ret;
         }
@@ -109,6 +114,7 @@ namespace PKISharp.WACS.Plugins.InstallationPlugins
             yield return (NewBindingPort.Meta, options.NewBindingPort);
             yield return (NewBindingIp.Meta, options.NewBindingIp);
             yield return (InstallationSite.Meta, options.SiteId);
+            yield return (UpdateOnly.Meta, options.UpdateOnly);
         }
     }
 

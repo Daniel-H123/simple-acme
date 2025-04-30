@@ -12,9 +12,9 @@ using System.Threading.Tasks;
 namespace PKISharp.WACS.Plugins.InstallationPlugins
 {
     [IPlugin.Plugin<
-        IISOptions, IISOptionsFactory, 
+        IISOptions, IISOptionsFactory,
         IISCapability, WacsJsonPlugins>
-        ("ea6a5be3-f8de-4d27-a6bd-750b619b2ee2", 
+        ("ea6a5be3-f8de-4d27-a6bd-750b619b2ee2",
         "IIS", "Create or update bindings in IIS")]
     [IPlugin.Plugin<
         IISFtpOptions, IISFTPOptionsFactory,
@@ -64,7 +64,7 @@ namespace PKISharp.WACS.Plugins.InstallationPlugins
             var installationSite = default(IIISSite);
             if (_options.SiteId != null)
             {
-                try 
+                try
                 {
                     installationSite = _iisClient.GetSite(_options.SiteId.Value);
                 }
@@ -103,7 +103,7 @@ namespace PKISharp.WACS.Plugins.InstallationPlugins
                     supported = false;
                     centralSslForHttp = false;
                 }
-                if (_target.Parts.Any(p => p.SiteType == IISSiteType.Ftp)) 
+                if (_target.Parts.Any(p => p.SiteType == IISSiteType.Ftp))
                 {
                     reason = "CentralSsl store is not supported for FTP sites";
                     supported = false;
@@ -114,7 +114,7 @@ namespace PKISharp.WACS.Plugins.InstallationPlugins
                     // available to the CertificateStore plugin.
                     _log.Error(reason);
                     throw new InvalidOperationException(reason);
-                } 
+                }
             }
 
             foreach (var part in _target.Parts)
@@ -150,8 +150,10 @@ namespace PKISharp.WACS.Plugins.InstallationPlugins
                             bindingOptions = bindingOptions.
                                 WithSiteId(part.SiteId.Value);
                         }
+                        bindingOptions = bindingOptions.WithUpdateOnly(_options.UpdateOnly);
+
                         _iisClient.UpdateHttpSite(httpIdentifiers, bindingOptions, oldCertificate?.GetHash(), newCertificate.SanNames);
-                        if (certificateStore) 
+                        if (certificateStore)
                         {
                             _iisClient.UpdateFtpSite(0, certificateStoreName, newCertificate, oldCertificate);
                         }

@@ -15,6 +15,7 @@ namespace PKISharp.WACS.Clients.IIS
         public const string DefaultBindingPortFormat = "443"; 
         public const int DefaultBindingPort = 443;
         public const string DefaultBindingIp = "*";
+        public const bool DefaultUpdateOnly = false;
 
         public Version Version { get; set; }
 
