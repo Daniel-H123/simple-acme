@@ -77,20 +77,6 @@ namespace PKISharp.WACS.Plugins.InstallationPlugins
                     _log.Warning("Installation site {id} not found running in IIS, only existing bindings will be updated", _options.SiteId);
                 }
             }
-            foreach (var part in _target.Parts)
-            {
-                // Use source plugin provided ID
-                // with override by installation site ID (for non-IIS source)
-                // for missing site the value might stay null, which means
-                // only pre-existing bindings will be updated an no new
-                // bindings can be created.
-                part.SiteId ??= installationSite?.Id;
-
-                // Use source plugin provided type
-                // with override by installation site type (for non-IIS source)
-                // with override by plugin variant (for missing installation sites)
-                part.SiteType ??= installationSite?.Type ?? (_options is IISFtpOptions ? IISSiteType.Ftp : IISSiteType.Web);
-            }
 
             if (centralSsl)
             {
@@ -119,6 +105,18 @@ namespace PKISharp.WACS.Plugins.InstallationPlugins
 
             foreach (var part in _target.Parts)
             {
+                // Use source plugin provided ID
+                // with override by installation site ID (for non-IIS source)
+                // for missing site the value might stay null, which means
+                // only pre-existing bindings will be updated an no new
+                // bindings can be created.
+                part.SiteId ??= installationSite?.Id;
+
+                // Use source plugin provided type
+                // with override by installation site type (for non-IIS source)
+                // with override by plugin variant (for missing installation sites)
+                part.SiteType ??= installationSite?.Type ?? (_options is IISFtpOptions ? IISSiteType.Ftp : IISSiteType.Web);
+
                 var httpIdentifiers = part.Identifiers.OfType<DnsIdentifier>();
                 var bindingOptions = new BindingOptions();
 
