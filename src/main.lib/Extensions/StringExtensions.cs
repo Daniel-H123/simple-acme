@@ -6,13 +6,12 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Security.Policy;
 using System.Text;
 using System.Text.RegularExpressions;
 
 namespace PKISharp.WACS.Extensions
 {
-    public static class StringExtensions
+    public static partial class StringExtensions
     {
         /// <summary>
         /// Convert URI to a string which can be used as a directory name
@@ -55,7 +54,7 @@ namespace PKISharp.WACS.Extensions
         /// </summary>
         /// <param name="input"></param>
         /// <returns></returns>
-        public static string ReplaceNewLines(this string input) => Regex.Replace(input, @"\r\n?|\n", " ");
+        public static string ReplaceNewLines(this string input) => NewLinesRegex().Replace(input, " ");
 
         /// <summary>
         /// Convert punycode (https://en.wikipedia.org/wiki/Punycode) to regular string
@@ -217,5 +216,8 @@ namespace PKISharp.WACS.Extensions
             }
             return new ProtectedString(original);
         }
+
+        [GeneratedRegex(@"\r\n?|\n")]
+        private static partial Regex NewLinesRegex();
     }
 }

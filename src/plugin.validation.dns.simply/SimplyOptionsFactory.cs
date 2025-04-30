@@ -1,11 +1,8 @@
-﻿using ACMESharp.Authorizations;
-using PKISharp.WACS.Configuration;
-using PKISharp.WACS.DomainObjects;
+﻿using PKISharp.WACS.Configuration;
 using PKISharp.WACS.Plugins.Base.Factories;
 using PKISharp.WACS.Services;
 using PKISharp.WACS.Services.Serialization;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 
 namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
@@ -13,17 +10,13 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
     /// <summary>
     /// Simply DNS validation
     /// </summary>
-    internal class SimplyOptionsFactory : PluginOptionsFactory<SimplyOptions>
+    internal class SimplyOptionsFactory(ArgumentsInputService arguments) : PluginOptionsFactory<SimplyOptions>
     {
-        private readonly ArgumentsInputService _arguments;
-
-        public SimplyOptionsFactory(ArgumentsInputService arguments) => _arguments = arguments;
-
-        private ArgumentResult<string?> Account => _arguments.
+        private ArgumentResult<string?> Account => arguments.
             GetString<SimplyArguments>(a => a.Account).
             Required();
 
-        private ArgumentResult<ProtectedString?> ApiKey => _arguments.
+        private ArgumentResult<ProtectedString?> ApiKey => arguments.
             GetProtectedString<SimplyArguments>(a => a.ApiKey).
             Required();
 

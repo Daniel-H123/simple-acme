@@ -1,32 +1,34 @@
+using PKISharp.WACS.Plugins.ValidationPlugins.Dns.Models;
+using PKISharp.WACS.Services;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Net.Mime;
 using System.Threading.Tasks;
-using PKISharp.WACS.Plugins.ValidationPlugins.Dns.Models;
-using PKISharp.WACS.Services;
+
+[assembly: SuppressMessage("Style", "IDE1006:Naming Styles", Justification = "<Pending>")]
 
 namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns;
 
-internal sealed class HetznerClient : IDisposable
+public sealed class HetznerClient : IDisposable
 {
-    private static readonly Uri BASE_ADDRESS = new Uri("https://dns.hetzner.com/api/v1/");
+    private static readonly Uri BASE_ADDRESS = new("https://dns.hetzner.com/api/v1/");
 
-    private ILogService _log;
+    private readonly ILogService _log;
 
-    private HttpClient _httpClient;
+    private readonly HttpClient _httpClient;
 
-    public HetznerClient(string apiToken, ILogService logService, IProxyService proxyService)
+    public HetznerClient(HttpClient client, string apiToken, ILogService logService)
     {
         _log = logService;
-
-        _httpClient = proxyService.GetHttpClient();
-        _httpClient.BaseAddress = BASE_ADDRESS;
-        _httpClient.DefaultRequestHeaders.Add("Auth-API-Token", apiToken);
-        _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Json));
+        client.BaseAddress = BASE_ADDRESS;
+        client.DefaultRequestHeaders.Add("Auth-API-Token", apiToken);
+        client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Json));
+        _httpClient = client;
     }
 
     public void Dispose()
@@ -40,7 +42,7 @@ internal sealed class HetznerClient : IDisposable
         if (zonesResponse is null)
         {
             _log.Warning("No zones found in Hetzner DNS");
-            return Array.Empty<Zone>();
+            return [];
         }
 
         // Is only one page returned?

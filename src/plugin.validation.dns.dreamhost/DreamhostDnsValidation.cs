@@ -5,41 +5,41 @@ using PKISharp.WACS.Plugins.ValidationPlugins.Dns;
 using PKISharp.WACS.Plugins.ValidationPlugins.Dreamhost;
 using PKISharp.WACS.Services;
 using System;
-using System.Runtime.Versioning;
+using System.Net.Http;
 using System.Threading.Tasks;
-
-[assembly: SupportedOSPlatform("windows")]
 
 namespace PKISharp.WACS.Plugins.ValidationPlugins
 {
-    [IPlugin.Plugin<
+    [IPlugin.Plugin1<
         DreamhostOptions, DreamhostOptionsFactory,
-        DnsValidationCapability, DreamhostJson>
+        DnsValidationCapability, DreamhostJson, DreamhostArguments>
         ("2bfb3ef8-64b8-47f1-8185-ea427b793c1a", 
-        "Dreamhost", "Create verification records in Dreamhost DNS")]
-    internal class DreamhostDnsValidation : DnsValidation<DreamhostDnsValidation>
+        "DreamHost", "Create verification records in DreamHost DNS",
+        External = true)]
+    internal class DreamhostDnsValidation(
+        LookupClientProvider dnsClient,
+        ILogService logService,
+        ISettingsService settings,
+        IProxyService proxy,
+        SecretServiceManager ssm,
+        DreamhostOptions options) : DnsValidation<DreamhostDnsValidation, DnsManagementClient>(dnsClient, logService, settings, proxy)
     {
-        private readonly DnsManagementClient _client;
-
-        public DreamhostDnsValidation(
-            LookupClientProvider dnsClient, 
-            ILogService logService, 
-            ISettingsService settings,
-            SecretServiceManager ssm,
-            DreamhostOptions options)
-            : base(dnsClient, logService, settings) 
-            => _client = new DnsManagementClient(ssm.EvaluateSecret(options.ApiKey) ?? "", logService);
+        protected override async Task<DnsManagementClient> CreateClient(HttpClient httpClient)
+        {
+            return new(await ssm.EvaluateSecret(options.ApiKey) ?? "", _log, httpClient);
+        }
 
         public override async Task<bool> CreateRecord(DnsValidationRecord record)
         {
             try
             {
-                await _client.CreateRecord(record.Authority.Domain, RecordType.TXT, record.Value);
+                var client = await GetClient();
+                await client.CreateRecord(record.Authority.Domain, RecordType.TXT, record.Value);
                 return true;
             }
             catch (Exception ex)
             {
-                _log.Warning($"Unable to create record at Dreamhost: {ex.Message}");
+                _log.Warning(ex, $"Unable to create record at Dreamhost");
                 return false;
             }
         }
@@ -48,11 +48,12 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins
         {
             try
             {
-                await _client.DeleteRecord(record.Authority.Domain, RecordType.TXT, record.Value);
+                var client = await GetClient();
+                await client.DeleteRecord(record.Authority.Domain, RecordType.TXT, record.Value);
             }
             catch (Exception ex)
             {
-                _log.Warning($"Unable to delete record from Dreamhost: {ex.Message}");
+                _log.Warning(ex, $"Unable to delete record from Dreamhost");
             }
         }
     }

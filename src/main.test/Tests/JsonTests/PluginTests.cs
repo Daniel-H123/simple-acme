@@ -7,7 +7,6 @@ using PKISharp.WACS.Services;
 using PKISharp.WACS.Services.Serialization;
 using PKISharp.WACS.UnitTests.Mock.Services;
 using System;
-using System.Linq;
 using System.Text.Json;
 
 namespace PKISharp.WACS.UnitTests.Tests.JsonTests
@@ -22,10 +21,7 @@ namespace PKISharp.WACS.UnitTests.Tests.JsonTests
         [ClassInitialize]
         public static void ClassInitialize(TestContext context)
         {
-            if (context is null)
-            {
-                throw new ArgumentNullException(nameof(context));
-            }
+            ArgumentNullException.ThrowIfNull(context);
 
             var builder = new ContainerBuilder();
             var log = new Mock.Services.LogService();

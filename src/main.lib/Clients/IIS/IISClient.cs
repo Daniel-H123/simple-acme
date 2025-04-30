@@ -104,9 +104,9 @@ namespace PKISharp.WACS.Clients.IIS
             {
                 if (ServerManager == null)
                 {
-                    return new List<IISSiteWrapper>();
+                    return [];
                 }
-                _sites ??= ServerManager.Sites.AsEnumerable().
+                _sites ??= [.. ServerManager.Sites.AsEnumerable().
                        Select(x => new IISSiteWrapper(x)).
                        Where(s =>
                        {
@@ -119,30 +119,29 @@ namespace PKISharp.WACS.Clients.IIS
                                    {
                                        return s.Site.State == ObjectState.Started;
                                    }
-                                   catch
+                                   catch (Exception ex)
                                    {
                                        // Prevent COMExceptions such as misconfigured
                                        // application pools from crashing the whole 
-                                       _log.Warning("Unable to determine state for Site {id}", s.Id);
+                                       _log.Warning(ex, "Unable to determine state for Site {id}", s.Id);
                                        return false;
                                    }
                                default:
                                    return false;
                            }
                        }).
-                       OrderBy(s => s.Name).
-                       ToList();
+                       OrderBy(s => s.Name)];
                 return _sites;
             }
         }
 
         public IISSiteWrapper GetSite(long id, IISSiteType? type)
         {
-            var ret = Sites.Where(s => s.Site.Id == id).FirstOrDefault();
-            if (ret == null)
-            {
+            var ret = Sites.
+                Where(s => s.Site.Id == id).
+                FirstOrDefault() ?? 
                 throw new Exception($"Unable to find IIS SiteId #{id}");
-            }
+
             if (type != null && ret.Type != type)
             {
                 throw new Exception($"IIS SiteId #{id} is not of the expected type {type}");
@@ -210,7 +209,7 @@ namespace PKISharp.WACS.Clients.IIS
                 }
                 catch (Exception ex)
                 {
-                    _log.Warning("Unable to set attribute {name} on new binding: {ex}", attr.Name, ex.Message);
+                    _log.Warning(ex, "Unable to set attribute {name} on new binding: {ex}", attr.Name, ex.Message);
                 }
             }
 
@@ -336,6 +335,12 @@ namespace PKISharp.WACS.Clients.IIS
         /// <returns></returns>
         private Version GetIISVersion(AdminService adminService)
         {
+            // Obviously...
+            if (!OperatingSystem.IsWindows())
+            {
+                return new Version(0, 0);
+            }
+
             // Get the W3SVC service
             try
             {
@@ -374,9 +379,9 @@ namespace PKISharp.WACS.Clients.IIS
                     return new Version(0, 0);
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                _log.Warning("Unable to scan for services");
+                _log.Warning(ex, "Unable to scan for services");
             }
             try
             {

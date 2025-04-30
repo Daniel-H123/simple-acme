@@ -1,5 +1,4 @@
-﻿using Serilog;
-using System;
+﻿using System;
 #if !DEBUG
 using System.Diagnostics;
 #endif
@@ -9,17 +8,13 @@ using System.Reflection;
 
 namespace PKISharp.WACS.Services
 {
-    public class VersionService
+    public class VersionService(ILogService log)
     {
-        private readonly ILogService _log;
-
-        public VersionService(ILogService log) => _log = log;
-
         public bool Init()
         {
             if (ExePath == null)
             {
-                _log.Error("Unable to determine main module filename.");
+                log.Error("Unable to determine main module filename.");
                 return false;
             }
             var processInfo = new FileInfo(ExePath);
@@ -27,7 +22,7 @@ namespace PKISharp.WACS.Services
             // Check for running as local .NET tool
             if (processInfo.Name == "dotnet.exe")
             {
-                _log.Error("Running as a local dotnet tool is not supported. Please install using the --global option.");
+                log.Error("Running as a local dotnet tool is not supported. Please install using the --global option.");
                 return false;
             }
             // Check for running as global .NET tool
@@ -38,12 +33,12 @@ namespace PKISharp.WACS.Services
                 PluginPath = processInfo.DirectoryName!;
                 processInfo = new FileInfo(Process.GetCurrentProcess().MainModule?.FileName!);
                 ExePath = processInfo.FullName;
-                SettingsPath = Path.Combine(processInfo.Directory!.FullName, ".store", "win-acme");
+                SettingsPath = Path.Combine(processInfo.Directory!.FullName, ".store", "simple-acme");
 #endif
             }
-            _log.Verbose("ExePath: {ex}", ExePath);
-            _log.Verbose("ResourcePath: {ex}", ResourcePath);
-            _log.Verbose("PluginPath: {ex}", PluginPath);
+            log.Verbose("ExePath: {ex}", ExePath);
+            log.Verbose("ResourcePath: {ex}", ResourcePath);
+            log.Verbose("PluginPath: {ex}", PluginPath);
             return true;
         }
 

@@ -5,8 +5,11 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
+#if PLUGGABLE
 using System.Reflection;
 using System.Runtime.Loader;
+#endif
+using System.Runtime.Versioning;
 
 namespace PKISharp.WACS.Services
 {
@@ -18,29 +21,30 @@ namespace PKISharp.WACS.Services
         public AssemblyService(ILogService logger)
         {
             _log = logger;
-            _allTypes = new List<TypeDescriptor>();
-            _allTypes.AddRange(BuiltInTypes());
+            _allTypes = BuiltInTypes();
+            if (OperatingSystem.IsWindows())
+            {
+                _allTypes.AddRange(WindowsPlugins());
+            }
             _allTypes.AddRange(LoadFromDisk());
         }
 
         internal static List<TypeDescriptor> BuiltInTypes()
         {
-            return new()
-            {
+            return
+            [
                 // Arguments
                 new(typeof(Configuration.Arguments.MainArguments)),
                 new(typeof(Configuration.Arguments.AccountArguments)),
-                new(typeof(Configuration.Arguments.NetworkCredentialArguments)),
   
                 // Target plugins
                 new(typeof(Plugins.TargetPlugins.Csr)), new(typeof(Plugins.TargetPlugins.CsrArguments)),
-                new(typeof(Plugins.TargetPlugins.IIS)), new(typeof(Plugins.TargetPlugins.IISArguments)),
                 new(typeof(Plugins.TargetPlugins.Manual)), new(typeof(Plugins.TargetPlugins.ManualArguments)),
 
                 // Validation plugins
-                new(typeof(Plugins.ValidationPlugins.HttpValidationArguments)),
-                new(typeof(Plugins.ValidationPlugins.Dns.Manual)),
+                new(typeof(Plugins.ValidationPlugins.Any.Manual)),
                 new(typeof(Plugins.ValidationPlugins.Dns.Script)), new(typeof(Plugins.ValidationPlugins.Dns.ScriptArguments)),
+                new(typeof(Plugins.ValidationPlugins.Any.Null)),
                 new(typeof(Plugins.ValidationPlugins.Http.FileSystem)), new(typeof(Plugins.ValidationPlugins.Http.FileSystemArguments)),
                 new(typeof(Plugins.ValidationPlugins.Http.SelfHosting)), new(typeof(Plugins.ValidationPlugins.Http.SelfHostingArguments)),
                 new(typeof(Plugins.ValidationPlugins.Tls.SelfHosting)), new(typeof(Plugins.ValidationPlugins.Tls.SelfHostingArguments)),
@@ -49,34 +53,45 @@ namespace PKISharp.WACS.Services
                 new(typeof(Plugins.OrderPlugins.Domain)),
                 new(typeof(Plugins.OrderPlugins.Host)),
                 new(typeof(Plugins.OrderPlugins.Single)),
-                new(typeof(Plugins.OrderPlugins.Site)),
 
                 // CSR plugins
-                new(typeof(Plugins.CsrPlugins.CsrArguments)),
-                new(typeof(Plugins.CsrPlugins.Ec)),
-                new(typeof(Plugins.CsrPlugins.Rsa)),
+                new(typeof(Plugins.CsrPlugins.Ec)), new(typeof(Plugins.CsrPlugins.EcArguments)),
+                new(typeof(Plugins.CsrPlugins.Rsa)), new(typeof(Plugins.CsrPlugins.RsaArguments)),
 
                 // Store plugins
                 new(typeof(Plugins.StorePlugins.CertificateStore)), new(typeof(Plugins.StorePlugins.CertificateStoreArguments)),
-                new(typeof(Plugins.StorePlugins.CentralSsl)), new(typeof(Plugins.StorePlugins.CentralSslArguments)),
                 new(typeof(Plugins.StorePlugins.PemFiles)), new(typeof(Plugins.StorePlugins.PemFilesArguments)),
                 new(typeof(Plugins.StorePlugins.PfxFile)), new(typeof(Plugins.StorePlugins.PfxFileArguments)),
+                new(typeof(Plugins.StorePlugins.P7bFile)), new(typeof(Plugins.StorePlugins.P7bFileArguments)),
                 new(typeof(Plugins.StorePlugins.Null)),
 
                 // Installation plugins
-                new(typeof(Plugins.InstallationPlugins.IIS)), new(typeof(Plugins.InstallationPlugins.IISArguments)),
                 new(typeof(Plugins.InstallationPlugins.Script)), new(typeof(Plugins.InstallationPlugins.ScriptArguments)),
                 new(typeof(Plugins.InstallationPlugins.Null)),
 
                 // Secret plugins
                 new(typeof(Plugins.SecretPlugins.JsonSecretService)),
+                new(typeof(Plugins.SecretPlugins.ScriptSecretService)),
+                new(typeof(Plugins.SecretPlugins.EnvironmentSecretService)),
 
                 // Notification targets
                 new(typeof(Plugins.NotificationPlugins.NotificationTargetEmail))
-            };
+            ];
         }
 
-        private static readonly List<string> IgnoreLibraries = new() {
+        [SupportedOSPlatform("windows")]
+        internal static List<TypeDescriptor> WindowsPlugins()
+        {
+            return
+            [
+                new(typeof(Plugins.TargetPlugins.IIS)), new(typeof(Plugins.TargetPlugins.IISArguments)),
+                new(typeof(Plugins.OrderPlugins.Site)),
+                new(typeof(Plugins.StorePlugins.CentralSsl)), new(typeof(Plugins.StorePlugins.CentralSslArguments)),
+                new(typeof(Plugins.InstallationPlugins.IIS)), new(typeof(Plugins.InstallationPlugins.IISArguments)),
+            ];
+        }
+
+        private static readonly List<string> IgnoreLibraries = [
             "clrcompression.dll",
             "clrjit.dll",
             "coreclr.dll",
@@ -84,19 +99,20 @@ namespace PKISharp.WACS.Services
             "wacs.lib.dll",
             "mscordbi.dll",
             "mscordaccore.dll",
-            "Microsoft.Testing.Platform.MSBuild.dll"
-        };
+            "Microsoft.Testing.Platform.MSBuild.dll",
+            "System.Private.CoreLib.dll"
+        ];
 
         protected List<TypeDescriptor> LoadFromDisk()
         {
             if (string.IsNullOrEmpty(VersionService.PluginPath))
             {
-                return new List<TypeDescriptor>();
+                return [];
             }
             var pluginDirectory = new DirectoryInfo(VersionService.PluginPath);
             if (!pluginDirectory.Exists)
             {
-                return new List<TypeDescriptor>();
+                return [];
             }
             var dllFiles = pluginDirectory.
                 EnumerateFiles("*.dll", SearchOption.AllDirectories).
@@ -107,7 +123,7 @@ namespace PKISharp.WACS.Services
                 {
                     _log.Warning("This version of the program does not support external plugins, please download the pluggable version.");
                 }
-                return new List<TypeDescriptor>();
+                return [];
             } 
             else
             {
@@ -117,10 +133,10 @@ namespace PKISharp.WACS.Services
         }
 
 #if !PLUGGABLE
-        protected static List<TypeDescriptor> LoadFromDiskReal(IEnumerable<FileInfo> _) => new();
+        protected static List<TypeDescriptor> LoadFromDiskReal(IEnumerable<FileInfo> _) => [];
 #endif
 
-#if PLUGGABLE 
+#if PLUGGABLE
         protected List<TypeDescriptor> LoadFromDiskReal(IEnumerable<FileInfo> dllFiles)
         {
             var allAssemblies = new List<Assembly>();
@@ -143,22 +159,23 @@ namespace PKISharp.WACS.Services
             var ret = new List<Type>();
             foreach (var assembly in allAssemblies)
             {
-                IEnumerable<Type> types = new List<Type>();
+                IEnumerable<Type> types = [];
                 try
                 {
                     types = GetTypesFromAssembly(assembly).ToList();
                 }
                 catch (ReflectionTypeLoadException rex)
                 {
+                    _log.Warning("Error loading some types from {assembly} ({disk})", assembly.FullName, assembly.Location);
                     types = rex.Types.OfType<Type>();
-                    foreach (var lex in rex.LoaderExceptions.OfType<Exception>())
+                    foreach (var lex in rex.LoaderExceptions.OfType<Exception>().GroupBy(l => l.Message))
                     {
-                        _log.Error(lex, "Error loading type from {assembly} ({disk})", assembly.FullName, assembly.Location);
+                        _log.Verbose($"{lex.First().Message} ({lex.Count()})");
                     }
                 }
                 catch (Exception ex)
                 {
-                    _log.Error(ex, "Error loading types from assembly {assembly}", assembly.FullName);
+                    _log.Warning(ex, "Error loading types from assembly {assembly} ({disk})", assembly.FullName, assembly.Location);
                 }
                 ret.AddRange(types);
             }
@@ -170,7 +187,7 @@ namespace PKISharp.WACS.Services
         {
             if (assembly.DefinedTypes == null)
             {
-                return new List<Type>();
+                return [];
             }
             return assembly.DefinedTypes.
                 Where(x =>
@@ -223,11 +240,10 @@ namespace PKISharp.WACS.Services
         /// properties are preserved during the build.
         /// </summary>
         [DebuggerDisplay("{Type.Name}")]
-        public readonly struct TypeDescriptor
+        public readonly struct TypeDescriptor([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicProperties)] Type type)
         {
-            public TypeDescriptor([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicProperties)] Type type) => Type = type;
             [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicProperties)]
-            public Type Type { get; init; }
+            public Type Type { get; init; } = type;
         }
     }
 }

@@ -1,5 +1,4 @@
-﻿using DnsClient.Protocol;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -41,17 +40,11 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Simply
         public async Task DeleteRecordAsync(string objectId, string domain, string value)
         {
             var products = await GetProductsAsync();
-            var product = products.FirstOrDefault(x => x.Object == objectId);
-            if (product == null)
-            {
+            var product = products.FirstOrDefault(x => x.Object == objectId) ?? 
                 throw new Exception($"Unable to find product with object id {objectId}.");
-            }
             var records = await GetRecordsAsync(objectId);
-            var record = records.SingleOrDefault(x => x.Type == "TXT" && $"{x.Name}.{product.Domain?.NameIdn ?? "unknown"}" == domain && x.Data == value);
-            if (record is null)
-            {
+            var record = records.SingleOrDefault(x => x.Type == "TXT" && $"{x.Name}.{product.Domain?.NameIdn ?? "unknown"}" == domain && x.Data == value) ?? 
                 throw new Exception($"The TXT record {domain} that should be deleted does not exist at Simply.");
-            }
             await DeleteRecordAsync(objectId, record.RecordId);
         }
 

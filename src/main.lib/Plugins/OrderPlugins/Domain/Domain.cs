@@ -6,6 +6,7 @@ using PKISharp.WACS.Services;
 using PKISharp.WACS.Services.Serialization;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace PKISharp.WACS.Plugins.OrderPlugins
 {
@@ -13,19 +14,10 @@ namespace PKISharp.WACS.Plugins.OrderPlugins
         DomainOptions, PluginOptionsFactory<DomainOptions>,
         DomainCapability, WacsJsonPlugins>
         ("b7c331d4-d875-453e-b83a-2b537ca12535", 
-        "Domain", "Separate certificate for each domain (e.g. *.example.com)")]
-    class Domain : IOrderPlugin
+        "Domain", "Separate certificate for each registerable domain (e.g. *.example.com)")]
+    internal class Domain(DomainParseService domainParseService, ILogService log) : IOrderPlugin
     {
-        private readonly DomainParseService _domainParseService;
-        private readonly ILogService _log;
-
-        public Domain(DomainParseService domainParseService, ILogService log) 
-        {
-            _domainParseService = domainParseService;
-            _log = log;
-        }
-
-        public IEnumerable<Order> Split(Renewal renewal, Target target) 
+        public List<Order> Split(Renewal renewal, Target target) 
         {
             var ret = new Dictionary<string, Order>();
             var parts = new Dictionary<string, List<TargetPart>>();
@@ -37,17 +29,17 @@ namespace PKISharp.WACS.Plugins.OrderPlugins
                     switch (host)
                     {
                         case DnsIdentifier dns:
-                            domain = _domainParseService.GetRegisterableDomain(host.Value.TrimStart('.', '*'));
+                            domain = domainParseService.GetRegisterableDomain(host.Value.TrimStart('.', '*'));
                             break;
                         default:
-                            _log.Warning("Unsupported identifier type {type}", host.Type);
+                            log.Warning("Unsupported identifier type {type}", host.Type);
                             break;
                     }
                     var sourceParts = target.Parts.Where(p => p.GetIdentifiers(true).Contains(host));
                     if (!ret.ContainsKey(domain))
                     {
                         var filteredParts = sourceParts.Select(p =>
-                            new TargetPart(new List<Identifier> { host }) {
+                            new TargetPart([host]) {
                                 SiteId = p.SiteId, 
                                 SiteType = p.SiteType 
                             }).ToList();
@@ -71,7 +63,7 @@ namespace PKISharp.WACS.Plugins.OrderPlugins
                             var existingPart = existingParts.Where(x => sourcePart.SiteId == x.SiteId).FirstOrDefault();
                             if (existingPart == null)
                             {
-                                existingPart = new TargetPart(new[] { host } ) {
+                                existingPart = new TargetPart([host]) {
                                     SiteId = sourcePart.SiteId,
                                     SiteType = sourcePart.SiteType
                                 };
@@ -85,7 +77,7 @@ namespace PKISharp.WACS.Plugins.OrderPlugins
                     } 
                 }
             }
-            return ret.Values;
+            return [.. ret.Values];
         }
     }
 }

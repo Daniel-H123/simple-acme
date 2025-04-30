@@ -7,23 +7,27 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 
-[assembly: SupportedOSPlatform("windows")]
-
 namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
 {
-    [IPlugin.Plugin<
+    [IPlugin.Plugin1<
         LuaDnsOptions, LuaDnsOptionsFactory, 
-        DnsValidationCapability, LuaDnsJson>
+        DnsValidationCapability, LuaDnsJson, LuaDnsArguments>
         ("3b0c3cca-db98-40b7-b678-b34791070d42", 
-        "LuaDns", 
-        "Create verification records in LuaDns")]
-    internal sealed class LuaDns : DnsValidation<LuaDns>
+        "LuaDNS",
+        "Create verification records in LuaDNS",
+        External = true, Page = "lua")]
+    internal sealed class LuaDns(
+        LookupClientProvider dnsClient,
+        IProxyService proxy,
+        ILogService log,
+        ISettingsService settings,
+        SecretServiceManager ssm,
+        LuaDnsOptions options) : DnsValidation<LuaDns, HttpClient>(dnsClient, log, settings, proxy)
     {
         private class ZoneData
         {
@@ -56,31 +60,14 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
         }
 
         private static readonly Uri _LuaDnsApiEndpoint = new("https://api.luadns.com/v1/", UriKind.Absolute);
-        private static readonly Dictionary<string, RecordData> _recordsMap = new();
-
-        private readonly IProxyService _proxyService;
-
-        private readonly string? _userName;
-        private readonly string? _apiKey;
-
-        public LuaDns(
-            LookupClientProvider dnsClient,
-            IProxyService proxy,
-            ILogService log,
-            ISettingsService settings,
-            SecretServiceManager ssm,
-            LuaDnsOptions options): base(dnsClient, log, settings)
-        {
-            _proxyService = proxy;
-            _userName = options.Username;
-            _apiKey = ssm.EvaluateSecret(options.APIKey);
-        }
+        private static readonly Dictionary<string, RecordData> _recordsMap = [];
+        private readonly string? _userName = options.Username;
 
         public override async Task<bool> CreateRecord(DnsValidationRecord record)
         {
             _log.Information("Creating LuaDNS verification record");
 
-            using var client = GetClient();
+            var client = await GetClient();
             var response = await client.GetAsync(new Uri(_LuaDnsApiEndpoint, "zones"));
             if (!response.IsSuccessStatusCode)
             {
@@ -125,7 +112,7 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
 
         public override async Task DeleteRecord(DnsValidationRecord record)
         {
-            if (!_recordsMap.ContainsKey(record.Authority.Domain))
+            if (!_recordsMap.TryGetValue(record.Authority.Domain, out RecordData? value))
             {
                 _log.Warning($"No record with name {record.Authority.Domain} was created");
                 return;
@@ -133,8 +120,8 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
 
             _log.Information("Deleting LuaDNS verification record");
 
-            using var client = GetClient();
-            var created = _recordsMap[record.Authority.Domain];
+            var client = await GetClient();
+            var created = value;
             var response = await client.DeleteAsync(new Uri(_LuaDnsApiEndpoint, $"zones/{created.ZoneId}/records/{created.Id}"));
             if (!response.IsSuccessStatusCode)
             {
@@ -145,10 +132,10 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
             _ = _recordsMap.Remove(record.Authority.Domain);
         }
 
-        private HttpClient GetClient()
+        protected override async Task<HttpClient> CreateClient(HttpClient client)
         {
-            var client = _proxyService.GetHttpClient();
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_userName}:{_apiKey}")));
+            var apiKey = await ssm.EvaluateSecret(options.APIKey);
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_userName}:{apiKey}")));
             client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             return client;
         }

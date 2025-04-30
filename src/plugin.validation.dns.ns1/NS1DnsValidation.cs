@@ -5,40 +5,35 @@ using PKISharp.WACS.Plugins.ValidationPlugins.Dns.NS1;
 using PKISharp.WACS.Services;
 using System.Collections.Generic;
 using System.Linq;
-using System.Runtime.Versioning;
+using System.Net.Http;
 using System.Threading.Tasks;
-
-[assembly: SupportedOSPlatform("windows")]
 
 namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
 {
-    [IPlugin.Plugin<
+    [IPlugin.Plugin1<
         NS1Options, NS1OptionsFactory,
-        DnsValidationCapability, NS1Json>
+        DnsValidationCapability, NS1Json, NS1Arguments>
         ("C66CC8BE-3046-46C2-A0BA-EC4EC3E7FE96", 
-        "NS1", "Create verification records in NS1 DNS")]
-    internal class NS1DnsValidation : DnsValidation<NS1DnsValidation>
+        "NS1", "Create verification records in NS1 DNS", 
+        Name = "NS1/NSONE", External = true, Provider = "IBM")]
+    internal class NS1DnsValidation(
+        LookupClientProvider dnsClient,
+        ILogService logService,
+        ISettingsService settings,
+        IProxyService proxy,
+        NS1Options options,
+        SecretServiceManager ssm) : DnsValidation<NS1DnsValidation, DnsManagementClient>(dnsClient, logService, settings, proxy)
     {
-        private readonly DnsManagementClient _client;
-        private static readonly Dictionary<string, string> _zonesMap = new();
+        protected override async Task<DnsManagementClient> CreateClient(HttpClient httpClient) => new(
+            await ssm.EvaluateSecret(options.ApiKey) ?? "",
+            httpClient);
 
-        public NS1DnsValidation(
-            LookupClientProvider dnsClient,
-            ILogService logService,
-            ISettingsService settings,
-            NS1Options options,
-            SecretServiceManager ssm,
-            IProxyService proxyService)
-            : base(dnsClient, logService, settings)
-        {
-            _client = new DnsManagementClient(
-                ssm.EvaluateSecret(options.ApiKey) ?? "",
-                logService, proxyService);
-        }
+        private static readonly Dictionary<string, string> _zonesMap = [];
 
         public override async Task<bool> CreateRecord(DnsValidationRecord record)
         {
-            var zones = await _client.GetZones();
+            var client = await GetClient();
+            var zones = await client.GetZones();
             if (zones == null)
             {
                 _log.Error("Failed to get DNS zones list for account. Aborting.");
@@ -53,7 +48,7 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
             }
             _zonesMap[record.Authority.Domain] = zone;
 
-            var result = await _client.CreateRecord(zone, record.Authority.Domain, "TXT", record.Value);
+            var result = await client.CreateRecord(zone, record.Authority.Domain, "TXT", record.Value);
             if (!result)
             {
                 _log.Error("Failed to create DNS record. Aborting");
@@ -65,6 +60,7 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
 
         public override async Task DeleteRecord(DnsValidationRecord record)
         {
+            var client = await GetClient();
             string zone;
             if (!_zonesMap.TryGetValue(record.Authority.Domain, out zone!))
             {
@@ -72,7 +68,7 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
                 return;
             }
             _ = _zonesMap.Remove(record.Authority.Domain);
-            var result = await _client.DeleteRecord(zone, record.Authority.Domain, "TXT");
+            var result = await client.DeleteRecord(zone, record.Authority.Domain, "TXT");
             if (!result)
             {
                 _log.Error("Failed to delete DNS record");

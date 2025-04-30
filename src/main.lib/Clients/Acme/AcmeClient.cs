@@ -9,6 +9,7 @@ using PKISharp.WACS.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
 using System.Threading.Tasks;
 
 namespace PKISharp.WACS.Clients.Acme
@@ -44,17 +45,17 @@ namespace PKISharp.WACS.Clients.Acme
         public Account Account { get; private set; }
 
         public AcmeClient(
+            HttpClient httpClient,
             ILogService log,
+            IAcmeLogger acmeLogger,
             ISettingsService settings,
-            IProxyService proxy,
             ServiceDirectory directory,
             Account account)
         {
             _log = log;
             _settings = settings;
-            var httpClient = proxy.GetHttpClient(settings.Acme.ValidateServerCertificate != false);
             httpClient.BaseAddress = settings.BaseUri;
-            _client = new AcmeProtocolClient(httpClient, usePostAsGet: _settings.Acme.PostAsGet)
+            _client = new AcmeProtocolClient(httpClient, acmeLogger, usePostAsGet: _settings.Acme.PostAsGet)
             {
                 Directory = directory,
                 Signer = account.Signer.JwsTool(),
@@ -92,7 +93,7 @@ namespace PKISharp.WACS.Clients.Acme
             {
                 replaces = CertificateId(previous);
             }
-            return await _client.Retry(() => _client.CreateOrderAsync(acmeIdentifiers, replaces, notAfter), _log);
+            return await _client.Retry(() => _client.CreateOrderAsync(acmeIdentifiers, replaces, notAfter: notAfter), _log);
         }
 
         /// <summary>
@@ -161,6 +162,14 @@ namespace PKISharp.WACS.Clients.Acme
             }
             return challenge;
         }
+
+        /// <summary>
+        /// Get pre-existing orders (if any)
+        /// </summary>
+        /// <param name="url"></param>
+        /// <returns></returns>
+        internal async Task<AcmeOrders?> GetOrders()
+            => await _client.Retry(() => _client.GetOrdersAsync(_client.Account?.Payload.Orders), _log);
 
         /// <summary>
         /// Get order status
@@ -292,8 +301,8 @@ namespace PKISharp.WACS.Clients.Acme
             var serialBytes = certificate.Certificate.SerialNumber.ToByteArray();
             var keyAuth = AuthorityKeyIdentifier.GetInstance(certificate.Certificate.GetExtensionValue(X509Extensions.AuthorityKeyIdentifier).GetOctets());
             var keyAuthBytes = keyAuth.GetKeyIdentifier();
-            var serial = Base64Tool.UrlEncode(serialBytes.ToArray());
-            var keyauth = Base64Tool.UrlEncode(keyAuthBytes.ToArray());
+            var serial = Base64Tool.UrlEncode([.. serialBytes]);
+            var keyauth = Base64Tool.UrlEncode([.. keyAuthBytes]);
             return $"{keyauth}.{serial}";
         }
 

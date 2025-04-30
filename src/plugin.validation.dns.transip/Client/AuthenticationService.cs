@@ -3,7 +3,6 @@ using Org.BouncyCastle.Crypto;
 using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.OpenSsl;
 using Org.BouncyCastle.Security;
-using PKISharp.WACS.Services;
 using System;
 using System.IO;
 using System.Linq;
@@ -16,12 +15,12 @@ using System.Threading.Tasks;
 
 namespace TransIp.Library
 {
-    public class AuthenticationService : BaseService
+    public partial class AuthenticationService : BaseService
     {
         private readonly string _login;
         private readonly ICipherParameters? _key;
 
-        public AuthenticationService(string? login, string? privateKey, IProxyService proxyService) : base(proxyService)
+        public AuthenticationService(string? login, string? privateKey, HttpClient httpClient) : base(httpClient)
         {
             if (string.IsNullOrWhiteSpace(login))
             {
@@ -102,7 +101,7 @@ namespace TransIp.Library
             }
             if (!key.Contains('\n'))
             {
-                var innerKey = Regex.Match(key, "(-----.+-----)(.+)?(-----.+-----)", RegexOptions.Multiline);
+                var innerKey = PemSection().Match(key);
                 if (innerKey.Success)
                 {
                     key = innerKey.Groups[1].Value + innerKey.Groups[2].Value.Replace(" ", "\n") + innerKey.Groups[3].Value;
@@ -154,5 +153,8 @@ namespace TransIp.Library
             [JsonProperty("global_key")]
             public bool GlobalKey { get; set; }
         }
+
+        [GeneratedRegex("(-----.+-----)(.+)?(-----.+-----)", RegexOptions.Multiline)]
+        private static partial Regex PemSection();
     }
 }

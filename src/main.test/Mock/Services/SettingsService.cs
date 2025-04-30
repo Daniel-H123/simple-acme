@@ -4,9 +4,9 @@ using System;
 
 namespace PKISharp.WACS.UnitTests.Mock.Services
 {
-    class MockSettingsService : ISettingsService
+    internal class MockSettingsService : ISettingsService
     {
-        public Uri BaseUri => new("https://www.win-acme.com/");
+        public Uri BaseUri => new("https://www.simple-acme.com/");
         public UiSettings UI => new();
         public AcmeSettings Acme => new();
         public ExecutionSettings Execution => new();

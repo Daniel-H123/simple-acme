@@ -13,18 +13,17 @@ using System;
 
 namespace PKISharp.WACS.Plugins.CsrPlugins
 {
-    [IPlugin.Plugin<
-        EcOptions, CsrPluginOptionsFactory<EcOptions>, 
-        DefaultCapability, WacsJsonPlugins>
+    [IPlugin.Plugin1<
+        EcOptions, CsrPluginOptionsFactory<EcOptions, EcArguments>, 
+        DefaultCapability, WacsJsonPlugins, EcArguments>
         ("9aadcf71-5241-4c4f-aee1-bfe3f6be3489", 
-        "EC", "Elliptic Curve key")]
-    internal class Ec : CsrPlugin<EcOptions>
+        "EC", "Generate an EC public/private key pair", 
+        Name = "Elliptic Curve")]
+    internal class Ec(
+        ILogService log,
+        ISettingsService settings,
+        EcOptions options) : CsrPlugin<EcOptions>(log, settings, options)
     {
-        public Ec(
-            ILogService log,
-            ISettingsService settings,
-            EcOptions options) : base(log, settings, options) { }
-
         internal override AsymmetricCipherKeyPair GenerateNewKeyPair()
         {
             var generator = new ECKeyPairGenerator();
@@ -46,10 +45,9 @@ namespace PKISharp.WACS.Plugins.CsrPlugins
             var ret = "secp384r1"; // Default
             try
             {
-                var config = _settings.Csr?.Ec?.CurveName ??
-#pragma warning disable CS0618
-                _settings.Security?.ECCurve;
-#pragma warning restore CS0618
+#pragma warning disable CS0618 // Type or member is obsolete
+                var config = _settings.Csr?.Ec?.CurveName ?? _settings.Security?.ECCurve;
+#pragma warning restore CS0618 // Type or member is obsolete
                 if (config != null)
                 {
                     DerObjectIdentifier? curveOid = null;
@@ -70,7 +68,7 @@ namespace PKISharp.WACS.Plugins.CsrPlugins
             }
             catch (Exception ex)
             {
-                _log.Warning("Unable to get EC name, error: {@ex}", ex);
+                _log.Warning(ex, "Unable to get EC name");
             }
             _log.Debug("ECCurve: {ECCurve}", ret);
             return ret;

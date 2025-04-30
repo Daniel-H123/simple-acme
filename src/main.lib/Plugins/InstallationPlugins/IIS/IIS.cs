@@ -11,30 +11,19 @@ using System.Threading.Tasks;
 
 namespace PKISharp.WACS.Plugins.InstallationPlugins
 {
-    [IPlugin.Plugin<
-        IISOptions, IISOptionsFactory,
-        IISCapability, WacsJsonPlugins>
-        ("ea6a5be3-f8de-4d27-a6bd-750b619b2ee2",
-        "IIS", "Create or update bindings in IIS")]
+    [IPlugin.Plugin1<
+        IISOptions, IISOptionsFactory, 
+        IISCapability, WacsJsonPlugins, IISArguments>
+        (ID, Trigger, "Create or update bindings in IIS", Name = "Manage IIS bindings")]
     [IPlugin.Plugin<
         IISFtpOptions, IISFTPOptionsFactory,
         IISCapability, WacsJsonPlugins>
         ("13058a79-5084-48af-b047-634e0ee222f4",
         "IISFTP", "Create or update FTP bindings in IIS", Hidden = true)]
-    internal class IIS : IInstallationPlugin
+    internal class IIS(IISOptions options, IIISClient iisClient, ILogService log, Target target) : IInstallationPlugin
     {
-        private readonly ILogService _log;
-        private readonly IIISClient _iisClient;
-        private readonly IISOptions _options;
-        private readonly Target _target;
-
-        public IIS(IISOptions options, IIISClient iisClient, ILogService log, Target target)
-        {
-            _target = target;
-            _iisClient = iisClient;
-            _log = log;
-            _options = options;
-        }
+        internal const string Trigger = "IIS";
+        internal const string ID = "ea6a5be3-f8de-4d27-a6bd-750b619b2ee2";
 
         Task<bool> IInstallationPlugin.Install(
             Dictionary<Type, StoreInfo> storeInfo,
@@ -54,7 +43,7 @@ namespace PKISharp.WACS.Plugins.InstallationPlugins
             {
                 // No supported store
                 var errorMessage = "The IIS installation plugin requires the CertificateStore and/or CentralSsl store plugin";
-                _log.Error(errorMessage);
+                log.Error(errorMessage);
                 throw new InvalidOperationException(errorMessage);
             }
 
@@ -62,19 +51,19 @@ namespace PKISharp.WACS.Plugins.InstallationPlugins
             // to create new bindings if needed. This may
             // be an FTP site or a web site
             var installationSite = default(IIISSite);
-            if (_options.SiteId != null)
+            if (options.SiteId != null)
             {
                 try
                 {
-                    installationSite = _iisClient.GetSite(_options.SiteId.Value);
+                    installationSite = iisClient.GetSite(options.SiteId.Value);
                 }
-                catch
+                catch (Exception ex)
                 {
                     // Site may have been stopped or removed
                     // after initial renewal setup. This means
                     // we don't know where to create new bindings
                     // anymore, but that's not a fatal error.
-                    _log.Warning("Installation site {id} not found running in IIS, only existing bindings will be updated", _options.SiteId);
+                    log.Warning(ex, "Installation site {id} not found running in IIS, only existing bindings will be updated", options.SiteId);
                 }
             }
 
@@ -83,13 +72,13 @@ namespace PKISharp.WACS.Plugins.InstallationPlugins
                 centralSslForHttp = true;
                 var supported = true;
                 var reason = "";
-                if (_iisClient.Version.Major < 8)
+                if (iisClient.Version.Major < 8)
                 {
                     reason = "CentralSsl store requires IIS version 8.0 or higher";
                     supported = false;
                     centralSslForHttp = false;
                 }
-                if (_target.Parts.Any(p => p.SiteType == IISSiteType.Ftp))
+                if (target.Parts.Any(p => p.SiteType == IISSiteType.Ftp)) 
                 {
                     reason = "CentralSsl store is not supported for FTP sites";
                     supported = false;
@@ -98,24 +87,24 @@ namespace PKISharp.WACS.Plugins.InstallationPlugins
                 {
                     // Only throw error if there is no fallback 
                     // available to the CertificateStore plugin.
-                    _log.Error(reason);
+                    log.Error(reason);
                     throw new InvalidOperationException(reason);
                 }
             }
 
             // Convert site-specific binding options to dictionary
-            var siteBindingOptions = _options.Sites.ToDictionary(s => s.SiteId, s => s);
+            var siteBindingOptions = options.Sites.ToDictionary(s => s.SiteId, s => s);
 
             // Replace parts with site-specific binding options
             // if no site ID is provided by the source plugin
             // and site-specific binding options are available
-            var parts = _target.Parts.ToList();
-            if (parts.All(p => !p.SiteId.HasValue) && _options.Sites.Count > 0)
+            var parts = target.Parts.ToList();
+            if (parts.All(p => !p.SiteId.HasValue) && options.Sites.Count > 0)
             {
                 parts = new List<TargetPart>();
-                foreach (var part in _target.Parts)
+                foreach (var part in target.Parts)
                 {
-                    foreach (var site in _options.Sites)
+                    foreach (var site in options.Sites)
                     {
                         part.SiteId = site.SiteId;
                         parts.Add(part);
@@ -135,7 +124,7 @@ namespace PKISharp.WACS.Plugins.InstallationPlugins
                 // Use source plugin provided type
                 // with override by installation site type (for non-IIS source)
                 // with override by plugin variant (for missing installation sites)
-                part.SiteType ??= installationSite?.Type ?? (_options is IISFtpOptions ? IISSiteType.Ftp : IISSiteType.Web);
+                part.SiteType ??= installationSite?.Type ?? (options is IISFtpOptions ? IISSiteType.Ftp : IISSiteType.Web);
 
                 var httpIdentifiers = part.Identifiers.OfType<DnsIdentifier>();
                 var bindingOptions = new BindingOptions();
@@ -152,23 +141,23 @@ namespace PKISharp.WACS.Plugins.InstallationPlugins
                 {
                     case IISSiteType.Web:
                         // Optionaly overrule the standard IP for new bindings 
-                        if (!string.IsNullOrEmpty(_options.NewBindingIp))
+                        if (!string.IsNullOrEmpty(options.NewBindingIp))
                         {
                             bindingOptions = bindingOptions.
-                                WithIP(_options.NewBindingIp);
+                                WithIP(options.NewBindingIp);
                         }
                         // Optionaly overrule the standard port for new bindings 
-                        if (_options.NewBindingPort > 0)
+                        if (options.NewBindingPort > 0)
                         {
                             bindingOptions = bindingOptions.
-                                WithPort(_options.NewBindingPort.Value);
+                                WithPort(options.NewBindingPort.Value);
                         }
                         if (part.SiteId != null)
                         {
                             bindingOptions = bindingOptions.
                                 WithSiteId(part.SiteId.Value);
                         }
-                        bindingOptions = bindingOptions.WithUpdateOnly(_options.UpdateOnly);
+                        bindingOptions = bindingOptions.WithUpdateOnly(options.UpdateOnly);
 
                         if (bindingOptions.SiteId.HasValue && siteBindingOptions.ContainsKey(bindingOptions.SiteId.Value))
                         {
@@ -176,19 +165,19 @@ namespace PKISharp.WACS.Plugins.InstallationPlugins
                             bindingOptions = siteBindingOptions[bindingOptions.SiteId.Value].BindingOptions(bindingOptions);
                         }
 
-                        _iisClient.UpdateHttpSite(httpIdentifiers, bindingOptions, oldCertificate?.GetHash(), newCertificate.SanNames);
+                        iisClient.UpdateHttpSite(httpIdentifiers, bindingOptions, oldCertificate?.GetHash(), newCertificate.SanNames);
                         if (certificateStore)
                         {
-                            _iisClient.UpdateFtpSite(0, certificateStoreName, newCertificate, oldCertificate);
+                            iisClient.UpdateFtpSite(0, certificateStoreName, newCertificate, oldCertificate);
                         }
                         break;
                     case IISSiteType.Ftp:
                         // Update FTP site
-                        _iisClient.UpdateFtpSite(part.SiteId!.Value, certificateStoreName, newCertificate, oldCertificate);
-                        _iisClient.UpdateHttpSite(httpIdentifiers, bindingOptions, oldCertificate?.GetHash(), newCertificate.SanNames);
+                        iisClient.UpdateFtpSite(part.SiteId!.Value, certificateStoreName, newCertificate, oldCertificate);
+                        iisClient.UpdateHttpSite(httpIdentifiers, bindingOptions, oldCertificate?.GetHash(), newCertificate.SanNames);
                         break;
                     default:
-                        _log.Error("Unknown site type");
+                        log.Error("Unknown site type");
                         break;
                 }
             }

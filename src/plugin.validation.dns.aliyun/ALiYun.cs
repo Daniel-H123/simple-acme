@@ -1,4 +1,5 @@
 ﻿using AlibabaCloud.OpenApiClient.Models;
+using AlibabaCloud.SDK.Alidns20150109;
 using AlibabaCloud.SDK.Alidns20150109.Models;
 using AlibabaCloud.TeaUtil.Models;
 using PKISharp.WACS.Clients.DNS;
@@ -8,56 +9,41 @@ using PKISharp.WACS.Services;
 using System;
 using System.Linq;
 using System.Net.Http;
-using System.Runtime.Versioning;
 using System.Threading.Tasks;
 
-[assembly: SupportedOSPlatform("windows")]
-
+//Api Key: http://ram.console.aliyun.com/manage/ak
+//Api Doc: https://api.aliyun.com/api/Alidns/2015-01-09/AddDomainRecord
+//Api Server: https://api.aliyun.com/product/Alidns
 namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
 {
-    [IPlugin.Plugin<
-        ALiYunOptions, ALiYunOptionsFactory,
-        DnsValidationCapability, ALiYunJson>
+    [IPlugin.Plugin1<ALiYunOptions, ALiYunOptionsFactory, DnsValidationCapability, ALiYunJson, ALiYunArguments>
         ("1d4db2ea-ce7c-46ce-b86f-40b356fcf999",
-        "ALiYun", "Create verification records in ALiYun DNS")]
-    public class ALiYun : DnsValidation<ALiYun>, IDisposable
+        "Aliyun", "Create verification records in ALiYun DNS",
+        External = true, Provider = "Alibaba", Page = "alibaba")]
+    public class ALiYun(SecretServiceManager ssm,
+        LookupClientProvider dnsClient, ILogService log, ISettingsService settings, IProxyService proxy,
+        ALiYunOptions options) : DnsValidation<ALiYun, Client>(dnsClient, log, settings, proxy)
     {
-        private ALiYunOptions _options { get; }
-        private SecretServiceManager _ssm { get; }
-        private HttpClient _hc { get; }
-        private AlibabaCloud.SDK.Alidns20150109.Client _client { get; }
-
-        public ALiYun(
-            ALiYunOptions options,
-            SecretServiceManager ssm,
-            IProxyService proxyService,
-            LookupClientProvider dnsClient,
-            ILogService log,
-            ISettingsService settings) : base(dnsClient, log, settings)
+        protected override async Task<Client> CreateClient(HttpClient client)
         {
-            _options = options;
-            _ssm = ssm;
-            _hc = proxyService.GetHttpClient();
-            //New Client
-            var config = new Config
+            return new Client(new Config()
             {
-                AccessKeyId = _ssm.EvaluateSecret(_options.ApiID),
-                AccessKeySecret = _ssm.EvaluateSecret(_options.ApiSecret),
-                Endpoint = _ssm.EvaluateSecret(_options.ApiServer),
-            };
-            _client = new AlibabaCloud.SDK.Alidns20150109.Client(config);
+                AccessKeyId = await ssm.EvaluateSecret(options.ApiID),
+                AccessKeySecret = await ssm.EvaluateSecret(options.ApiSecret),
+                Endpoint = await ssm.EvaluateSecret(options.ApiServer),
+            });
         }
 
         public override async Task<bool> CreateRecord(DnsValidationRecord record)
         {
-            await Task.Delay(0);
             try
             {
-                var identifier = GetDomain(record) ?? throw new($"The domain name cannot be found: {record.Context.Identifier}");
+                var client = await GetClient();
+                var identifier = GetDomain(client, record) ?? throw new($"The domain name cannot be found: {record.Context.Identifier}");
                 var domain = record.Authority.Domain;
                 var value = record.Value;
                 //Add Record
-                return AddRecord(identifier, domain, value);
+                return AddRecord(client, identifier, domain, value);
             }
             catch (Exception ex)
             {
@@ -73,10 +59,11 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
             await Task.Delay(0);
             try
             {
-                var identifier = GetDomain(record) ?? throw new($"The domain name cannot be found: {record.Context.Identifier}");
+                var client = await GetClient();
+                var identifier = GetDomain(client, record) ?? throw new($"The domain name cannot be found: {record.Context.Identifier}");
                 var domain = record.Authority.Domain;
                 //Delete Record
-                _ = DelRecord(identifier, domain);
+                _ = DelRecord(client, identifier, domain);
             }
             catch (Exception ex)
             {
@@ -95,11 +82,11 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
         /// <param name="subDomain">SubDomain</param>
         /// <param name="value">Value</param>
         /// <returns></returns>
-        private bool AddRecord(string domain, string subDomain, string value)
+        private bool AddRecord(Client client, string domain, string subDomain, string value)
         {
             subDomain = subDomain.Replace($".{domain}", "");
             //Delete Record
-            _ = DelRecord(domain, subDomain);
+            _ = DelRecord(client, domain, subDomain);
             //Add Record
             var addRecords = new AddDomainRecordRequest
             {
@@ -109,8 +96,7 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
                 Value = value
             };
             var runtime = new RuntimeOptions();
-            var data = _client.AddDomainRecordWithOptions(addRecords, runtime);
-            //Console.WriteLine(data);
+            client.AddDomainRecordWithOptions(addRecords, runtime);
             return true;
         }
 
@@ -120,11 +106,11 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
         /// <param name="domain">Domain</param>
         /// <param name="subDomain">SubDomain</param>
         /// <returns></returns>
-        private bool DelRecord(string domain, string subDomain)
+        private bool DelRecord(Client client, string domain, string subDomain)
         {
             subDomain = subDomain.Replace($".{domain}", "");
             //Get RecordID
-            var recordId = GetRecordID(domain, subDomain);
+            var recordId = GetRecordID(client, domain, subDomain);
             if (recordId == default) return false;
             //Delete Record
             var delRecords = new DeleteDomainRecordRequest
@@ -132,8 +118,7 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
                 RecordId = recordId.ToString(),
             };
             var runtime = new RuntimeOptions();
-            var data = _client.DeleteDomainRecordWithOptions(delRecords, runtime);
-            //Console.WriteLine(data);
+            client.DeleteDomainRecordWithOptions(delRecords, runtime);
             return true;
         }
 
@@ -143,14 +128,14 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
         /// <param name="domain">Domain</param>
         /// <param name="subDomain">SubDomain</param>
         /// <returns></returns>
-        private string? GetRecordID(string domain, string subDomain)
+        private static string? GetRecordID(Client client, string domain, string subDomain)
         {
             var getRecords = new DescribeDomainRecordsRequest
             {
                 DomainName = domain,
             };
             var runtime = new RuntimeOptions();
-            var data = _client.DescribeDomainRecordsWithOptions(getRecords, runtime);
+            var data = client.DescribeDomainRecordsWithOptions(getRecords, runtime);
             //Console.WriteLine(data);
             var jsonDataLinq = data.Body.DomainRecords.Record.Where(w => w.RR == subDomain && w.Type == "TXT");
             if (jsonDataLinq.Any()) return jsonDataLinq.First().RecordId;
@@ -162,11 +147,11 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
         /// </summary>
         /// <param name="record">DnsValidationRecord</param>
         /// <returns></returns>
-        private string? GetDomain(DnsValidationRecord record)
+        private string? GetDomain(Client client, DnsValidationRecord record)
         {
             var detDomains = new DescribeDomainsRequest();
             var runtime = new RuntimeOptions();
-            var data = _client.DescribeDomainsWithOptions(detDomains, runtime);
+            var data = client.DescribeDomainsWithOptions(detDomains, runtime);
             //Console.WriteLine(data);
             var myDomains = data.Body.Domains.Domain.Select(t => t.DomainName);
             var zone = FindBestMatch(myDomains.ToDictionary(x => x), record.Authority.Domain);
@@ -175,7 +160,5 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
         }
 
         #endregion PrivateLogic
-
-        public void Dispose() => _hc.Dispose();
     }
 }

@@ -104,6 +104,8 @@ namespace PKISharp.WACS.Plugins.NotificationPlugins
             }
         }
 
+        public Task SendCancel(Renewal renewal) => Task.CompletedTask;
+
         private static string RenderLog(IEnumerable<MemoryEntry> log) => @$"<p>Log output:<ul><li>{string.Join("</li><li>", log.Select(x => RenderLogEntry(x)))}</ul></p>";
 
         private static string RenderLogEntry(MemoryEntry log)
@@ -142,7 +144,7 @@ namespace PKISharp.WACS.Plugins.NotificationPlugins
                         <tr><td colspan=""2"">{NotificationHosts(renewal)}</td></tr>
                         <tr><td colspan=""2"">&nbsp;</td></tr>
                         <tr><td><b>Plugins</b></td><td></td></tr>
-                        <tr><td>Target: </td><td> {_plugin.GetPlugin(renewal.TargetPluginOptions).Name}</td></tr>";
+                        <tr><td>Source: </td><td> {_plugin.GetPlugin(renewal.TargetPluginOptions).Name}</td></tr>";
                 extraMessage += @$"<tr><td>Validation: </td><td> {_plugin.GetPlugin(renewal.ValidationPluginOptions).Name}</td></tr>";
                 if (renewal.OrderPluginOptions != null)
                 {
@@ -183,7 +185,7 @@ namespace PKISharp.WACS.Plugins.NotificationPlugins
             {
                 return "Error";
             }
-            if (!hosts.Any())
+            if (hosts.Count == 0)
             {
                 return "Unknown";
             }

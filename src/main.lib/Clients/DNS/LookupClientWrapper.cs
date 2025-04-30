@@ -1,6 +1,7 @@
 ﻿using DnsClient;
 using DnsClient.Protocol;
 using PKISharp.WACS.Services;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -14,7 +15,7 @@ namespace PKISharp.WACS.Clients.DNS
         private readonly ILogService _log;
         private readonly LookupClientWrapper _system;
         private readonly IPAddress? _ipAddress;
-        private readonly ILookupClient _lookupClient;
+        private readonly LookupClient _lookupClient;
 
         private bool? _connected = null;
         public string IpAddress => _ipAddress?.ToString() ?? "[System]";
@@ -76,10 +77,10 @@ namespace PKISharp.WACS.Clients.DNS
                 _log.Verbose("Found nsRecords: {nsRecord}", nsHosts);
                 return GetIpAddresses(nsHosts);
             }
-            return new List<IPAddress>();
+            return [];
         }
 
-        private IEnumerable<IPAddress> GetIpAddresses(IEnumerable<string> hosts)
+        private List<IPAddress> GetIpAddresses(IEnumerable<string> hosts)
         {
             var ret = new List<IPAddress>();    
             foreach (var nsRecord in hosts)
@@ -109,9 +110,9 @@ namespace PKISharp.WACS.Clients.DNS
                     await GetTxtRecords("www.example.com");
                     _connected = true;
                 }
-                catch
+                catch (Exception ex)
                 {
-                    _log.Warning("Error connection to {ip}", IpAddress);
+                    _log.Warning(ex, "Error connection to {ip}", IpAddress);
                     _connected = false;
                 }
             }

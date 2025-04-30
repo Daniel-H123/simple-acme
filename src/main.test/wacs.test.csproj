@@ -1,7 +1,7 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net7.0</TargetFramework>
+    <TargetFramework>net9.0</TargetFramework>
 
     <IsPackable>false</IsPackable>
 
@@ -15,6 +15,12 @@
   </PropertyGroup>
   
   <ItemGroup>
+    <Compile Remove="Tests\ParsingTests\**" />
+    <EmbeddedResource Remove="Tests\ParsingTests\**" />
+    <None Remove="Tests\ParsingTests\**" />
+  </ItemGroup>
+  
+  <ItemGroup>
     <None Remove="Tests\CsrPluginTests\messedup.pfx" />
     <None Remove="Tests\CsrPluginTests\original.pfx" />
     <None Remove="Tests\CsrPluginTests\working.pfx" />
@@ -25,10 +31,10 @@
   </ItemGroup>
   
   <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.10.0" />
-    <PackageReference Include="MSTest.TestAdapter" Version="3.4.3" />
-    <PackageReference Include="MSTest.TestFramework" Version="3.4.3" />
-    <PackageReference Include="coverlet.collector" Version="6.0.2">
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
+    <PackageReference Include="MSTest.TestAdapter" Version="3.8.3" />
+    <PackageReference Include="MSTest.TestFramework" Version="3.8.3" />
+    <PackageReference Include="coverlet.collector" Version="6.0.4">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
@@ -44,10 +50,6 @@
     <None Update="public_suffix_list.dat">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="Tests\ParsingTests\" />
   </ItemGroup>
 
 </Project>

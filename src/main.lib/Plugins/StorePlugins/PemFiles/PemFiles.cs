@@ -11,30 +11,39 @@ using System.Threading.Tasks;
 
 namespace PKISharp.WACS.Plugins.StorePlugins
 {
-    [IPlugin.Plugin<
+    [IPlugin.Plugin1<
         PemFilesOptions, PemFilesOptionsFactory, 
-        DefaultCapability, WacsJsonPlugins>
+        DefaultCapability, WacsJsonPlugins, PemFilesArguments>
         ("e57c70e4-cd60-4ba6-80f6-a41703e21031",
-        Name, "PEM encoded files (Apache, nginx, etc.)")]
+        Trigger, "Create PEM encoded files (for Apache, nginx, etc.)", 
+        Name = "PEM files")]
     internal class PemFiles : IStorePlugin
     {
-        internal const string Name = "PemFiles";
+        internal const string Trigger = "PemFiles";
 
         private readonly ILogService _log;
         private readonly string _path;
         private readonly string? _name;
-        private readonly string? _password;
+
+        private readonly string? _passwordRaw;
+        private string? _passwordEvaluated;
+        private readonly SecretServiceManager _secretService;
+        private async Task<string?> GetPassword()
+        {
+            _passwordEvaluated ??= await _secretService.EvaluateSecret(_passwordRaw);
+            return _passwordEvaluated;
+        }
 
         public PemFiles(
-            ILogService log, ISettingsService settings,
-            PemFilesOptions options, SecretServiceManager secretServiceManager)
+            ILogService log,
+            ISettingsService settings,
+            PemFilesOptions options, 
+            SecretServiceManager secretServiceManager)
         {
             _log = log;
 
-            var passwordRaw = 
-                options.PemPassword?.Value ?? 
-                settings.Store.PemFiles.DefaultPassword;
-            _password = secretServiceManager.EvaluateSecret(passwordRaw);
+            _passwordRaw = options.PemPassword?.Value ?? settings.Store.PemFiles.DefaultPassword;
+            _secretService = secretServiceManager;
             _name = options.FileName;
             var path = options.Path;
             if (string.IsNullOrWhiteSpace(path))
@@ -66,7 +75,7 @@ namespace PKISharp.WACS.Plugins.StorePlugins
                 var certificateExport = input.Certificate.GetEncoded();
                 var certString = PemService.GetPem("CERTIFICATE", certificateExport);
                 var chainString = "";
-                await File.WriteAllTextAsync(Path.Combine(_path, $"{name}-crt.pem"), certString);
+                await FileInfoExtensions.SafeWrite(Path.Combine(_path, $"{name}-crt.pem"), certString);
 
                 // Rest of the chain
                 foreach (var chainCertificate in input.Chain)
@@ -81,16 +90,16 @@ namespace PKISharp.WACS.Plugins.StorePlugins
                 }
 
                 // Save complete chain
-                await File.WriteAllTextAsync(Path.Combine(_path, $"{name}-chain.pem"), certString + chainString);
-                await File.WriteAllTextAsync(Path.Combine(_path, $"{name}-chain-only.pem"), chainString);
+                await FileInfoExtensions.SafeWrite(Path.Combine(_path, $"{name}-chain.pem"), certString + chainString);
+                await FileInfoExtensions.SafeWrite(Path.Combine(_path, $"{name}-chain-only.pem"), chainString);
 
                 // Private key
                 if (input.PrivateKey != null)
                 {
-                    var pkPem = PemService.GetPem(input.PrivateKey, _password);
+                    var pkPem = PemService.GetPem(input.PrivateKey, await GetPassword());
                     if (!string.IsNullOrEmpty(pkPem))
                     {
-                        await File.WriteAllTextAsync(Path.Combine(_path, $"{name}-key.pem"), pkPem);
+                        await FileInfoExtensions.SafeWrite(Path.Combine(_path, $"{name}-key.pem"), pkPem);
                     }
                 } 
                 else
@@ -98,7 +107,7 @@ namespace PKISharp.WACS.Plugins.StorePlugins
                     _log.Warning("No private key found in cache");
                 }
                 return new StoreInfo() {
-                    Name = Name,
+                    Name = Trigger,
                     Path = _path
                 };
             }

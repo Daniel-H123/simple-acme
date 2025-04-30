@@ -1,7 +1,11 @@
-version: 2.2.9.{build}
+version: 2.3.2.{build}
+branches:
+  only:
+    - main
 image: Visual Studio 2022
 platform: Any CPU
 shallow_clone: true
+clone_depth: 1
 dotnet_csproj:
   patch: true
   file: '**\*.csproj'
@@ -9,63 +13,66 @@ dotnet_csproj:
   assembly_version: '{version}'
   file_version: '{version}'
 environment:
-  PfxPassword:
+  Configs: 
+    Release
+    ReleaseTrimmed
+  Platforms:
+    win-x64
+    win-arm64
+    win-x86
+    linux-x64
+    linux-arm64
+  NuGet: 1
+  Plugins: 1
+  PluginsCount: 999
+  Clean: 0
+  Test: 1
+  NetVersion: net9.0
+  SelfSigningPasswordDISABLED:
     secure: tC3u6WA0oWdjXzbLX61Ux2tBK0KhFTT9FgUZFn0Nx0pY045twcsFBvRL+Di6SE80Nc88xaM/xloHGUAQoIq4OANLNg0BEsDYPnhziZDiLBo=
+
 clone_script:
   - cmd: >-
       git clone -q --branch=%APPVEYOR_REPO_BRANCH% https://github.com/%APPVEYOR_REPO_NAME%.git %APPVEYOR_BUILD_FOLDER%
       && cd %APPVEYOR_BUILD_FOLDER%
       && git checkout -qf %APPVEYOR_REPO_COMMIT%
       && git submodule update --init --recursive
+
 before_build:
   - cmd: dotnet --version
+  - ps: cd $env:APPVEYOR_BUILD_FOLDER\build\
+  - ps: . .\01-helpers.ps1
+
 build_script:
-  - cmd: dotnet pack ./src/main/wacs.csproj -c "Release" /p:PublishSingleFile=false /p:PublishReadyToRun=false
-  - cmd: dotnet publish ./src/main/wacs.csproj -c "Release" -r win-x64 --self-contained
-  - cmd: dotnet publish ./src/main/wacs.csproj -c "Release" -r win-x86 --self-contained
-  - cmd: dotnet publish ./src/main/wacs.csproj -c "Release" -r win-arm64 --self-contained
-  - cmd: dotnet publish ./src/main/wacs.csproj -c "ReleaseTrimmed" -r win-x64 --self-contained /p:warninglevel=0
-  - cmd: dotnet publish ./src/main/wacs.csproj -c "ReleaseTrimmed" -r win-x86 --self-contained /p:warninglevel=0
-  - cmd: dotnet publish ./src/main/wacs.csproj -c "ReleaseTrimmed" -r win-arm64 --self-contained /p:warninglevel=0
-  - cmd: dotnet publish ./src/plugin.store.keyvault/wacs.store.keyvault.csproj -c Release
-  - cmd: dotnet publish ./src/plugin.store.userstore/wacs.store.userstore.csproj -c "Release"
-  - cmd: dotnet publish ./src/plugin.validation.dns.acme/wacs.validation.dns.acme.csproj -c Release
-  - cmd: dotnet publish ./src/plugin.validation.dns.aliyun/wacs.validation.dns.aliyun.csproj -c Release
-  - cmd: dotnet publish ./src/plugin.validation.dns.azure/wacs.validation.dns.azure.csproj -c Release
-  - cmd: dotnet publish ./src/plugin.validation.dns.cloudflare/wacs.validation.dns.cloudflare.csproj -c Release
-  - cmd: dotnet publish ./src/plugin.validation.dns.digitalocean/wacs.validation.dns.digitalocean.csproj -c Release
-  - cmd: dotnet publish ./src/plugin.validation.dns.dnsexit/wacs.validation.dns.dnsexit.csproj -c Release
-  - cmd: dotnet publish ./src/plugin.validation.dns.dnsmadeeasy/wacs.validation.dns.dnsmadeeasy.csproj -c Release
-  - cmd: dotnet publish ./src/plugin.validation.dns.domeneshop/wacs.validation.dns.domeneshop.csproj -c Release
-  - cmd: dotnet publish ./src/plugin.validation.dns.dreamhost/wacs.validation.dns.dreamhost.csproj -c Release
-  - cmd: dotnet publish ./src/plugin.validation.dns.godaddy/wacs.validation.dns.godaddy.csproj -c Release
-  - cmd: dotnet publish ./src/plugin.validation.dns.googledns/wacs.validation.dns.googledns.csproj -c Release
-  - cmd: dotnet publish ./src/plugin.validation.dns.hetzner/wacs.validation.dns.hetzner.csproj -c Release
-  - cmd: dotnet publish ./src/plugin.validation.dns.infomaniak/wacs.validation.dns.infomaniak.csproj -c Release
-  - cmd: dotnet publish ./src/plugin.validation.dns.linode/wacs.validation.dns.linode.csproj -c Release
-  - cmd: dotnet publish ./src/plugin.validation.dns.luadns/wacs.validation.dns.luadns.csproj -c Release
-  - cmd: dotnet publish ./src/plugin.validation.dns.ns1/wacs.validation.dns.ns1.csproj -c Release
-  - cmd: dotnet publish ./src/plugin.validation.dns.rfc2136/wacs.validation.dns.rfc2136.csproj -c Release
-  - cmd: dotnet publish ./src/plugin.validation.dns.route53/wacs.validation.dns.route53.csproj -c Release
-  - cmd: dotnet publish ./src/plugin.validation.dns.simply/wacs.validation.dns.simply.csproj -c Release
-  - cmd: dotnet publish ./src/plugin.validation.dns.transip/wacs.validation.dns.transip.csproj -c Release
-  - cmd: dotnet publish ./src/plugin.validation.dns.tencent/wacs.validation.dns.tencent.csproj -c Release
-  - cmd: dotnet publish ./src/plugin.validation.http.ftp/wacs.validation.http.ftp.csproj -c Release
-  - cmd: dotnet publish ./src/plugin.validation.http.rest/wacs.validation.http.rest.csproj -c Release
-  - cmd: dotnet publish ./src/plugin.validation.http.sftp/wacs.validation.http.sftp.csproj -c Release
-  - cmd: dotnet publish ./src/plugin.validation.http.webdav/wacs.validation.http.webdav.csproj -c Release
-test_script:
-  - cmd: cd %APPVEYOR_BUILD_FOLDER%/src/main.test/
-  - cmd: nuget install Appveyor.TestLogger -Version 2.0.0
-  - cmd: cd %APPVEYOR_BUILD_FOLDER%
-  - cmd: dotnet test ./src/main.test/wacs.test.csproj -c Release --test-adapter-path:. --logger:Appveyor 
+  - ps: .\02-build.ps1
+
 after_build:
-- ps: >-
-    cd $env:APPVEYOR_BUILD_FOLDER\build\
+  - ps: .\03-create-artifacts.ps1
+  - ps: >-
+     if ($env:APPVEYOR_REPO_TAG -eq "true") {
+        .\04-gather-signingbundle.ps1
+        Get-ChildItem $env:APPVEYOR_BUILD_FOLDER\out\bundle\ | Foreach-Object {
+            Push-AppveyorArtifact $_.FullName -FileName $_.Name
+        }
+     } else {
+        Get-ChildItem $env:APPVEYOR_BUILD_FOLDER\out\unsigned\ | Foreach-Object {
+            Push-AppveyorArtifact $_.FullName -FileName $_.Name
+        }
+     }
 
-    .\create-artifacts.ps1 $env:APPVEYOR_BUILD_FOLDER $env:APPVEYOR_BUILD_VERSION $env:PfxPassword
+test_script:
+  - ps: >-
+     if ($env:Test -eq "1") {
+        cd $env:APPVEYOR_BUILD_FOLDER/src/main.test/
+        nuget install Appveyor.TestLogger -Version 2.0.0
+        cd $env:APPVEYOR_BUILD_FOLDER
+        dotnet test ./src/main.test/wacs.test.csproj -c Release --test-adapter-path:. --logger:Appveyor 
+     }
 
-    Get-ChildItem $env:APPVEYOR_BUILD_FOLDER\build\artifacts\ | Foreach-Object {
-        Push-AppveyorArtifact $_.FullName -FileName $_.Name
-    }
-deploy: "off"
+deploy:
+  - provider: Webhook
+    url: https://app.signpath.io/API/v1/e396b30d-0bbf-442f-b958-78da3e8c1b7e/Integrations/AppVeyor?ProjectSlug=simple-acme&SigningPolicySlug=release-signing&ArtifactConfigurationSlug=signingbundle
+    authorization:
+        secure: fK/EgkAVGI8Z4caVk1SVVaykvVN9kAGHRXp9GCpgOzE7ghPI6ieYqzK5oOII7ORFKRf8OisPKcZFaRklBH4ikQ==
+    on:  
+        APPVEYOR_REPO_TAG: true

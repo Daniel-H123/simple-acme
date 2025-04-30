@@ -26,6 +26,9 @@ namespace PKISharp.WACS.Host
             // Are we running in verbose mode?
             var verbose = args.Contains("--verbose") || args.Contains("/verbose");
 
+            // Are we running in config mode?
+            var config = args.Contains("--config") || args.Contains("/config");
+
             // The main class might change the character encoding
             // save the original setting so that it can be restored
             // after the run.
@@ -34,7 +37,7 @@ namespace PKISharp.WACS.Host
             try
             {
                 // Setup IOC container
-                var container = Autofac.Container(args, verbose);
+                var container = Autofac.Container(args, verbose, config);
                 AllowInstanceToRun(container);
                 var wacs = container.Resolve<Wacs>();
                 Environment.ExitCode = await wacs.Start().ConfigureAwait(false);
@@ -68,7 +71,7 @@ namespace PKISharp.WACS.Host
         /// overwrite eachothers stuff
         /// </summary>
         /// <returns></returns>
-        static void AllowInstanceToRun(ILifetimeScope container)
+        private static void AllowInstanceToRun(ILifetimeScope container)
         {
             var logger = container.Resolve<ILogService>();
             _globalMutex = new Mutex(true, "wacs.exe", out var created);
@@ -89,9 +92,16 @@ namespace PKISharp.WACS.Host
         /// <summary>
         /// Close in a friendly way
         /// </summary>
-        static void FriendlyClose()
+        private static void FriendlyClose()
         {
-            _globalMutex?.ReleaseMutex();
+            try
+            {
+                _globalMutex?.ReleaseMutex();
+            } 
+            catch
+            {
+
+            }
             Environment.ExitCode = -1;
             if (Environment.UserInteractive)
             {
@@ -106,7 +116,7 @@ namespace PKISharp.WACS.Host
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="args"></param>
-        static void OnUnhandledException(object sender, UnhandledExceptionEventArgs args)
+        private static void OnUnhandledException(object sender, UnhandledExceptionEventArgs args)
         {
             var ex = (Exception)args.ExceptionObject;
             Console.WriteLine(" Unhandled exception caught: " + ex.Message);

@@ -1,4 +1,5 @@
-﻿using Autofac;
+﻿using ACMESharp;
+using Autofac;
 using Autofac.Core;
 using PKISharp.WACS.Clients;
 using PKISharp.WACS.Clients.Acme;
@@ -7,10 +8,11 @@ using PKISharp.WACS.Clients.IIS;
 using PKISharp.WACS.Configuration;
 using PKISharp.WACS.Configuration.Arguments;
 using PKISharp.WACS.Plugins.Resolvers;
-using PKISharp.WACS.Plugins.ValidationPlugins;
+using PKISharp.WACS.Plugins.ValidationPlugins.Http;
 using PKISharp.WACS.Services;
-using PKISharp.WACS.Services.Interfaces;
+using PKISharp.WACS.Services.AutoRenew;
 using PKISharp.WACS.Services.Serialization;
+using System;
 
 namespace PKISharp.WACS.Host
 {
@@ -21,10 +23,10 @@ namespace PKISharp.WACS.Host
         /// </summary>
         /// <param name="args"></param>
         /// <returns></returns>
-        internal static ILifetimeScope Container(string[] args, bool verbose)
+        internal static ILifetimeScope Container(string[] args, bool verbose, bool config)
         {
             var builder = new ContainerBuilder();
-            _ = builder.RegisterType<LogService>().WithParameter(new TypedParameter(typeof(bool), verbose)).SingleInstance().As<ILogService>();
+            _ = builder.RegisterType<LogService>().WithParameter(new NamedParameter(nameof(verbose), verbose)).WithParameter(new NamedParameter(nameof(config), config)).SingleInstance().As<ILogService>().As<IAcmeLogger>();
             _ = builder.RegisterType<ExtendedAssemblyService>().As<AssemblyService>().SingleInstance();
             _ = builder.RegisterType<PluginService>().SingleInstance().As<IPluginService>();
             _ = builder.RegisterType<ArgumentsParser>().WithParameter(new TypedParameter(typeof(string[]), args)).SingleInstance();
@@ -49,6 +51,7 @@ namespace PKISharp.WACS.Host
                 // Single instance types
                 _ = builder.RegisterType<AdminService>().SingleInstance();
                 _ = builder.RegisterType<VersionService>().SingleInstance();
+                _ = builder.RegisterType<HelpService>().SingleInstance();
                 _ = builder.RegisterType<UserRoleService>().As<IUserRoleService>().SingleInstance();
                 _ = builder.RegisterType<ValidationOptionsService>().As<IValidationOptionsService>().As<ValidationOptionsService>().SingleInstance();
                 _ = builder.RegisterType<InputService>().As<IInputService>().SingleInstance();
@@ -66,6 +69,7 @@ namespace PKISharp.WACS.Host
                 _ = builder.RegisterType<NetworkCheckService>().SingleInstance();
                 _ = builder.RegisterType<ZeroSsl>().SingleInstance();
                 _ = builder.RegisterType<OrderManager>().SingleInstance();
+                _ = builder.RegisterType<TargetValidator>().SingleInstance();
                 _ = builder.RegisterType<EmailClient>().SingleInstance();
                 _ = builder.RegisterType<ScriptClient>().SingleInstance();
                 _ = builder.RegisterType<LookupClientProvider>().SingleInstance();
@@ -74,7 +78,14 @@ namespace PKISharp.WACS.Host
                 _ = builder.RegisterType<DueDateStaticService>().SingleInstance();
                 _ = builder.RegisterType<DueDateRuntimeService>().SingleInstance();
                 _ = builder.RegisterType<SecretServiceManager>().SingleInstance();
-                _ = builder.RegisterType<TaskSchedulerService>().SingleInstance();
+                if (OperatingSystem.IsWindows())
+                {
+                    _ = builder.RegisterType<TaskSchedulerService>().As<IAutoRenewService>().SingleInstance();
+                }
+                else if (OperatingSystem.IsLinux())
+                {
+                    _ = builder.RegisterType<CronJobService>().As<IAutoRenewService>().SingleInstance();
+                }
                 _ = builder.RegisterType<NotificationService>().SingleInstance();
                 _ = builder.RegisterType<RenewalExecutor>().SingleInstance();
                 _ = builder.RegisterType<RenewalManager>().SingleInstance();
@@ -84,6 +95,7 @@ namespace PKISharp.WACS.Host
                 _ = builder.RegisterType<Unattended>().SingleInstance();
                 _ = builder.RegisterType<ArgumentsInputService>().SingleInstance();
                 _ = builder.RegisterType<MainMenu>().SingleInstance();
+                _ = builder.RegisterType<Banner>().SingleInstance();
 
                 // Multi-instance types
                 _ = builder.RegisterType<Wacs>();

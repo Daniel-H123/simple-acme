@@ -5,29 +5,39 @@ using PKISharp.WACS.Plugins.Interfaces;
 using PKISharp.WACS.Services;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
 
-namespace PKISharp.WACS.Plugins.ValidationPlugins
+namespace PKISharp.WACS.Plugins.ValidationPlugins.Http
 {
     /// <summary>
     /// Base implementation for HTTP-01 validation plugins
     /// </summary>
-    public abstract class HttpValidation<TOptions> :
-        Validation<Http01ChallengeValidationDetails>
+    /// <remarks>
+    /// Constructor
+    /// </remarks>
+    /// <param name="log"></param>
+    /// <param name="input"></param>
+    /// <param name="options"></param>
+    /// <param name="proxy"></param>
+    /// <param name="renewal"></param>
+    /// <param name="target"></param>
+    /// <param name="runLevel"></param>
+    /// <param name="identifier"></param>
+    public abstract class HttpValidation<TOptions>(TOptions options, RunLevel runLevel, HttpValidationParameters pars) :
+        HttpValidationBase(pars.LogService, runLevel, pars.InputService)
         where TOptions : HttpValidationOptions
     {
-        private readonly List<string> _filesWritten = new();
+        private readonly List<string> _filesWritten = [];
 
-        protected TOptions _options;
-        protected ILogService _log;
-        protected IInputService _input;
-        protected ISettingsService _settings;
-        protected Renewal _renewal;
-        protected RunLevel _runLevel;
+        protected TOptions _options = options;
+        protected IInputService _input = pars.InputService;
+        protected ISettingsService _settings = pars.Settings;
+        protected Renewal _renewal = pars.Renewal;
+        protected RunLevel _runLevel = runLevel;
+        protected ILogService _log = pars.LogService;
 
         /// <summary>
         /// Multiple http-01 validation challenges can be answered at the same time
@@ -38,12 +48,12 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins
         /// Path used for the current renewal, may not be same as _options.Path
         /// because of the "Split" function employed by IISSites target
         /// </summary>
-        protected string? _path;
+        protected string? _path = options.Path;
 
         /// <summary>
         /// Provides proxy settings for site warmup
         /// </summary>
-        private readonly IProxyService _proxy;
+        private readonly IProxyService _proxy = pars.ProxyService;
 
         /// <summary>
         /// Where to find the template for the web.config that's copied to the webroot
@@ -56,32 +66,9 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins
         protected virtual char PathSeparator => '\\';
 
         /// <summary>
-        /// Constructor
-        /// </summary>
-        /// <param name="log"></param>
-        /// <param name="input"></param>
-        /// <param name="options"></param>
-        /// <param name="proxy"></param>
-        /// <param name="renewal"></param>
-        /// <param name="target"></param>
-        /// <param name="runLevel"></param>
-        /// <param name="identifier"></param>
-        public HttpValidation(TOptions options, RunLevel runLevel, HttpValidationParameters pars)
-        {
-            _options = options;
-            _runLevel = runLevel;
-            _path = options.Path;
-            _log = pars.LogService;
-            _input = pars.InputService;
-            _proxy = pars.ProxyService;
-            _settings = pars.Settings;
-            _renewal = pars.Renewal;
-        }
-
-        /// <summary>
         /// Handle http challenge
         /// </summary>
-        public async override Task PrepareChallenge(ValidationContext context, Http01ChallengeValidationDetails challenge)
+        public async override Task<bool> PrepareChallenge(ValidationContext context, Http01ChallengeValidationDetails challenge)
         {
             // Should always have a value, confirmed by RenewalExecutor
             // check only to satifiy the compiler
@@ -91,19 +78,7 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins
             }
             await WriteAuthorizationFile(challenge);
             await WriteWebConfig(challenge);
-            _log.Information("Answer should now be browsable at {answerUri}", challenge.HttpResourceUrl);
-            if (_runLevel.HasFlag(RunLevel.Test) && _renewal.New)
-            {
-                if (await _input.PromptYesNo("[--test] Try in default browser?", false))
-                {
-                    Process.Start(new ProcessStartInfo
-                    {
-                        FileName = challenge.HttpResourceUrl,
-                        UseShellExecute = true
-                    });
-                    await _input.Wait();
-                }
-            }
+            await TestChallenge(challenge);
 
             string? foundValue = null;
             try
@@ -111,23 +86,25 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins
                 var value = await WarmupSite(challenge);
                 if (Equals(value, challenge.HttpResourceValue))
                 {
-                    _log.Information("Preliminary validation looks good, but the ACME server will be more thorough");
+                    log.Information("Preliminary validation looks good, but the ACME server will be more thorough");
+                    return true;
                 }
                 else
                 {
-                    _log.Warning("Preliminary validation failed, the server answered '{value}' instead of '{expected}'. The ACME server might have a different perspective",
+                    log.Warning("Preliminary validation failed, the server answered '{value}' instead of '{expected}'. The ACME server might have a different perspective",
                         foundValue ?? "(null)",
                         challenge.HttpResourceValue);
                 }
             }
             catch (HttpRequestException hrex)
             {
-                _log.Warning("Preliminary validation failed because '{hrex}'", hrex.Message);
+                log.Warning(hrex, "Preliminary validation failed because '{hrex}'", hrex.Message);
             }
             catch (Exception ex)
             {
-                _log.Error(ex, "Preliminary validation failed");
+                log.Error(ex, "Preliminary validation failed");
             }
+            return false;
         }
 
         /// <summary>
@@ -145,7 +122,7 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins
         /// <param name="uri"></param>
         private async Task<string> WarmupSite(Http01ChallengeValidationDetails challenge)
         {
-            using var client = _proxy.GetHttpClient(false);
+            using var client = await _proxy.GetHttpClient(false);
             var response = await client.GetAsync(challenge.HttpResourceUrl);
             return await response.Content.ReadAsStringAsync();
         }
@@ -192,7 +169,7 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins
                         var content = HttpValidation<TOptions>.GetWebConfig().Value;
                         if (content != null)
                         {
-                            _log.Debug("Writing web.config");
+                            log.Debug("Writing web.config");
                             await WriteFile(destination, content);
                             _filesWritten.Add(destination);
                         }
@@ -201,7 +178,7 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins
                 }
                 catch (Exception ex)
                 {
-                    _log.Warning("Unable to write web.config: {ex}", ex.Message);
+                    log.Warning(ex, "Unable to write web.config");
                 }
             }
         }
@@ -213,7 +190,7 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins
         private static Lazy<string?> GetWebConfig() => new(() => {
             try
             {
-                return File.ReadAllText(HttpValidation<TOptions>.TemplateWebConfig);
+                return File.ReadAllText(TemplateWebConfig);
             } 
             catch 
             {
@@ -249,7 +226,7 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins
             }
             else
             {
-                _log.Debug("Not deleting {path} because it doesn't exist or it's not empty.", path);
+                log.Debug("Not deleting {path} because it doesn't exist or it's not empty.", path);
                 return false;
             }
         }
@@ -303,7 +280,7 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins
                     var written = new List<string>(_filesWritten);
                     foreach (var file in written)
                     {
-                        _log.Debug("Deleting files");
+                        log.Debug("Deleting files");
                         await DeleteFile(file);
                         _filesWritten.Remove(file);
                         var folder = file[..file.LastIndexOf(PathSeparator)];
@@ -314,7 +291,7 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins
                     }
                     if (_settings.Validation.CleanupFolders)
                     {
-                        _log.Debug("Deleting empty folders");
+                        log.Debug("Deleting empty folders");
                         foreach (var folder in folders)
                         {
                             if (await DeleteFolderIfEmpty(folder))
@@ -332,7 +309,7 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins
             }
             catch (Exception ex)
             {
-                _log.Error(ex, "Error occured while deleting folder structure");
+                log.Error(ex, "Error occured while deleting folder structure");
             }
         }
     }

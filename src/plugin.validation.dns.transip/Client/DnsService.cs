@@ -1,15 +1,12 @@
-﻿using PKISharp.WACS.Services;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
+using System.Net.Http;
 using System.Threading.Tasks;
 using TransIp.Library.Dto;
 
 namespace TransIp.Library
 {
-    public class DnsService : BaseServiceAuthenticated
+    public class DnsService(AuthenticationService authenticationService, HttpClient httpClient) : BaseServiceAuthenticated(authenticationService, httpClient)
     {
-        public DnsService(AuthenticationService authenticationService, IProxyService proxyService) : 
-            base(authenticationService, proxyService) { }
-       
         public async Task<IEnumerable<Domain>?> ListDomains()
         {
             var response = await Get<DomainList>($"domains");

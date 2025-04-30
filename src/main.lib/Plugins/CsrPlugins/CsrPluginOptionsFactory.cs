@@ -3,7 +3,7 @@ using PKISharp.WACS.Plugins.Base.Options;
 using PKISharp.WACS.Plugins.CsrPlugins;
 using PKISharp.WACS.Services;
 using System.Collections.Generic;
-using System.Text;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading.Tasks;
 
 namespace PKISharp.WACS.Plugins.Base.Factories
@@ -12,22 +12,18 @@ namespace PKISharp.WACS.Plugins.Base.Factories
     /// CsrPluginFactory base implementation
     /// </summary>
     /// <typeparam name="TPlugin"></typeparam>
-    public class CsrPluginOptionsFactory<TOptions> :
+    public class CsrPluginOptionsFactory<TOptions, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicProperties)] TArguments>(ArgumentsInputService arguments) :
         PluginOptionsFactory<TOptions>
         where TOptions : CsrPluginOptions, new()
+        where TArguments : CsrArguments, new()
     {
-        private ArgumentsInputService Arguments { get; }
-
-        public CsrPluginOptionsFactory(ArgumentsInputService arguments) 
-            => Arguments = arguments;
-        
-        protected ArgumentResult<bool?> OcspMustStaple => Arguments.
-            GetBool<CsrArguments>(x => x.OcspMustStaple).
+        protected ArgumentResult<bool?> OcspMustStaple => arguments.
+            GetBool<TArguments>(x => x.OcspMustStaple).
             WithDefault(false).
             DefaultAsNull();
 
-        protected ArgumentResult<bool?> ReusePrivateKey => Arguments.
-            GetBool<CsrArguments>(x => x.ReusePrivateKey).
+        protected ArgumentResult<bool?> ReusePrivateKey => arguments.
+            GetBool<TArguments>(x => x.ReusePrivateKey).
             WithDefault(false).
             DefaultAsNull();
 

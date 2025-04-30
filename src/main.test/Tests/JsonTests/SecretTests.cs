@@ -35,6 +35,7 @@ namespace PKISharp.WACS.UnitTests.Tests.JsonTests
             WacsJson.Configure(builder);
             _container = builder.Build();
             _plugin = _container.Resolve<IPluginService>();
+            log.Debug(context.TestName ?? "");
         }
 
         private static string Serialize(Renewal renewal)
@@ -79,7 +80,7 @@ namespace PKISharp.WACS.UnitTests.Tests.JsonTests
         [TestMethod]
         public void SerializeSecretExternal()
         {
-            Assert.AreEqual(28, _plugin!.GetPlugins().Count());
+            Assert.AreEqual(30, _plugin!.GetPlugins().Count());
             var renewal = new Renewal
             {
                 TargetPluginOptions = new ManualOptions(),

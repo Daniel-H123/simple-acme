@@ -5,45 +5,36 @@ using PKISharp.WACS.Plugins.ValidationPlugins.Dns;
 using PKISharp.WACS.Plugins.ValidationPlugins.Linode;
 using PKISharp.WACS.Services;
 using System.Collections.Concurrent;
-using System.Runtime.Versioning;
-
-[assembly: SupportedOSPlatform("windows")]
 
 namespace PKISharp.WACS.Plugins.ValidationPlugins
 {
-    [IPlugin.Plugin<
+    [IPlugin.Plugin1<
         LinodeOptions, LinodeOptionsFactory,
-        DnsValidationCapability, LinodeJson>
+        DnsValidationCapability, LinodeJson, LinodeArguments>
         ("12fdc54c-be30-4458-8066-2c1c565fe2d9",
-        "Linode", "Create verification records in Linode DNS")]
-    internal class LinodeDnsValidation : DnsValidation<LinodeDnsValidation>
+        "Linode", "Create verification records in Linode DNS",
+        External = true, Provider = "Akamai")]
+    internal class LinodeDnsValidation(
+        LookupClientProvider dnsClient,
+        ILogService logService,
+        ISettingsService settings,
+        DomainParseService domainParser,
+        LinodeOptions options,
+        SecretServiceManager ssm,
+        IProxyService proxyService) : DnsValidation<LinodeDnsValidation, DnsManagementClient>(dnsClient, logService, settings, proxyService)
     {
-        private readonly DnsManagementClient _client;
-        private readonly DomainParseService _domainParser;
-        private readonly Dictionary<string, int> _domainIds = new();
+        private readonly Dictionary<string, int> _domainIds = [];
         private readonly ConcurrentDictionary<int, List<int>> _recordIds = new();
-        private new readonly ILogService _log;
 
-        public LinodeDnsValidation(
-            LookupClientProvider dnsClient,
-            ILogService logService,
-            ISettingsService settings,
-            DomainParseService domainParser,
-            LinodeOptions options,
-            SecretServiceManager ssm,
-            IProxyService proxyService) : base(dnsClient, logService, settings)
-        {
-            _client = new DnsManagementClient(ssm.EvaluateSecret(options.ApiToken) ?? "", logService, proxyService);
-            _domainParser = domainParser;
-            _log = logService;
-        }
+        protected override async Task<DnsManagementClient> CreateClient(HttpClient client) => new(await ssm.EvaluateSecret(options.ApiToken) ?? "",  _log, client);
 
         public override async Task<bool> CreateRecord(DnsValidationRecord record)
         {
             try
             {
-                var domain = _domainParser.GetRegisterableDomain(record.Authority.Domain);
-                var domainId = await _client.GetDomainId(domain);
+                var client = await GetClient();
+                var domain = domainParser.GetRegisterableDomain(record.Authority.Domain);
+                var domainId = await client.GetDomainId(domain);
                 if (domainId == 0)
                 {
                     throw new InvalidDataException("Linode did not return a valid domain id.");
@@ -51,26 +42,27 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins
                 _ = _domainIds.TryAdd(record.Authority.Domain, domainId);
 
                 var recordName = RelativeRecordName(domain, record.Authority.Domain);
-                var recordId = await _client.CreateRecord(domainId, recordName, record.Value);
+                var recordId = await client.CreateRecord(domainId, recordName, record.Value);
                 if (recordId == 0)
                 {
                     throw new InvalidDataException("Linode did not return a valid domain record id.");
                 }
                 _ = _recordIds.AddOrUpdate(
                     domainId,
-                    new List<int> { recordId }, 
-                    (b, s) => s.Append(recordId).ToList());
+                    [recordId], 
+                    (b, s) => [.. s, recordId]);
                 return true;
             }
             catch (Exception ex)
             {
-                _log.Warning($"Unable to create record at Linode: {ex.Message}");
+                _log.Warning(ex, $"Unable to create record at Linode");
                 return false;
             }
         }
 
         public override async Task DeleteRecord(DnsValidationRecord record)
         {
+            var client = await GetClient();
             if (_domainIds.TryGetValue(record.Authority.Domain, out var domainId))
             {
                 if (_recordIds.TryGetValue(domainId, out var recordIds))
@@ -79,11 +71,11 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins
                     {
                         try
                         {
-                            _ = await _client.DeleteRecord(domainId, recordId);
+                            _ = await client.DeleteRecord(domainId, recordId);
                         }
                         catch (Exception ex)
                         {
-                            _log.Warning("Unable to delete record {recordId} from Linode domain {domainId}: {message}", recordId, domainId, ex.Message);
+                            _log.Warning(ex, "Unable to delete record {recordId} from Linode domain {domainId}", recordId, domainId);
                         }
                     }
                 }

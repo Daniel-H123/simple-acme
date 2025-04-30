@@ -7,74 +7,70 @@ using PKISharp.WACS.Services.Serialization;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace PKISharp.WACS.Plugins.InstallationPlugins
 {
-    [IPlugin.Plugin<
+    [IPlugin.Plugin1<
         ScriptOptions, ScriptOptionsFactory, 
-        InstallationCapability, WacsJsonPlugins>
+        InstallationCapability, WacsJsonPlugins, ScriptArguments>
         ("3bb22c70-358d-4251-86bd-11858363d913", 
-        "Script", "Start external script or program")]
-    internal class Script : IInstallationPlugin
+        "Script", "Start external script or program", 
+        Name = "Custom script")]
+    internal partial class Script(
+        Renewal renewal, 
+        ScriptOptions options, 
+        ScriptClient client, 
+        SecretServiceManager secretServiceManager) : IInstallationPlugin
     {
-        private readonly Renewal _renewal;
-        private readonly ScriptOptions _options;
-        private readonly ScriptClient _client;
-        private readonly SecretServiceManager _ssm;
-
-        public Script(
-            Renewal renewal, ScriptOptions options, 
-            ScriptClient client, SecretServiceManager secretManager)
-        {
-            _options = options;
-            _renewal = renewal;
-            _client = client;
-            _ssm = secretManager;
-        }
-
         public async Task<bool> Install(Dictionary<Type, StoreInfo> storeInfo, ICertificateInfo newCertificate, ICertificateInfo? oldCertificate)
         {
-            if (_options.Script != null)
+            if (options.Script != null)
             {
                 var defaultStoreInfo = default(StoreInfo?);
-                if (storeInfo.Any())
+                if (storeInfo.Count != 0)
                 {
                     defaultStoreInfo = storeInfo.First().Value;
                 }
-                var parameters = ReplaceParameters(_options.ScriptParameters ?? "", defaultStoreInfo, newCertificate, oldCertificate, false);
-                var censoredParameters = ReplaceParameters(_options.ScriptParameters ?? "", defaultStoreInfo, newCertificate, oldCertificate, true);
-                return await _client.RunScript(_options.Script, parameters, censoredParameters);
+                var parameters = await ReplaceParameters(options.ScriptParameters ?? "", defaultStoreInfo, newCertificate, oldCertificate, false);
+                var censoredParameters = await ReplaceParameters(options.ScriptParameters ?? "", defaultStoreInfo, newCertificate, oldCertificate, true);
+                var result = await client.RunScript(options.Script, parameters, censoredParameters);
+                return result.Success;
             }
             return false;
         }
 
-        internal string ReplaceParameters(string input, StoreInfo? defaultStoreInfo, ICertificateInfo newCertificate, ICertificateInfo? oldCertificate, bool censor)
+        internal async Task<string> ReplaceParameters(string input, StoreInfo? defaultStoreInfo, ICertificateInfo newCertificate, ICertificateInfo? oldCertificate, bool censor)
         {
+            var cachedCertificate = newCertificate as CertificateInfoCache;
+            var replacements = new Dictionary<string, string?>
+            {
+                { "RenewalId", renewal.Id },
+                { "CacheFile", cachedCertificate?.CacheFile.FullName },
+                { "CacheFolder", cachedCertificate?.CacheFile.Directory?.FullName },
+                { "CachePassword", censor ? renewal.PfxPassword?.DisplayValue : renewal.PfxPassword?.Value },
+                { "CertCommonName", newCertificate.CommonName?.Value },
+                { "CertFriendlyName", newCertificate.FriendlyName },
+                { "CertThumbprint", newCertificate.Thumbprint },
+                { "StorePath", defaultStoreInfo?.Path },
+                { "StoreType", defaultStoreInfo?.Name },
+                { "OldCertCommonName",oldCertificate?.CommonName?.Value },
+                { "OldCertFriendlyName", oldCertificate?.FriendlyName },
+                { "OldCertThumbprint", oldCertificate?.Thumbprint }
+            };
+
             // Numbered parameters for backwards compatibility only,
             // do not extend for future updates
-            var cachedCertificate = newCertificate as CertificateInfoCache;
-            return Regex.Replace(input, "{.+?}", (m) => {
-                return m.Value switch
-                {
-                    "{0}" or "{CertCommonName}" => newCertificate.CommonName?.Value ?? "",
-                    "{1}" or "{CachePassword}" => (censor ? _renewal.PfxPassword?.DisplayValue : _renewal.PfxPassword?.Value) ?? "",
-                    "{2}" or "{CacheFile}" => cachedCertificate?.CacheFile.FullName ?? "",
-                    "{3}" or "{StorePath}" => defaultStoreInfo?.Path ?? "",
-                    "{4}" or "{CertFriendlyName}" => newCertificate.FriendlyName,
-                    "{5}" or "{CertThumbprint}" => newCertificate.Thumbprint,
-                    "{6}" or "{CacheFolder}" => cachedCertificate?.CacheFile.Directory?.FullName ?? "",
-                    "{7}" or "{RenewalId}" => _renewal.Id,
-                    "{StoreType}" => defaultStoreInfo?.Name ?? "",
-                    "{OldCertCommonName}" => oldCertificate?.CommonName?.Value ?? "",
-                    "{OldCertFriendlyName}" => oldCertificate?.FriendlyName ?? "",
-                    "{OldCertThumbprint}" => oldCertificate?.Thumbprint ?? "",
-                    var s when s.StartsWith($"{{{SecretServiceManager.VaultPrefix}") => 
-                        censor ? s : _ssm.EvaluateSecret(s.Trim('{', '}')) ?? s,
-                    _ => m.Value
-                };
-            });
+            replacements["0"] = replacements["CertCommonName"];
+            replacements["1"] = replacements["CachePassword"];
+            replacements["2"] = replacements["CacheFile"];
+            replacements["3"] = replacements["StorePath"];
+            replacements["4"] = replacements["CertFriendlyName"];
+            replacements["5"] = replacements["CertThumbprint"];
+            replacements["6"] = replacements["CacheFolder"];
+            replacements["7"] = replacements["RenewalId"];
+
+            return await ScriptClient.ReplaceTokens(input, replacements, secretServiceManager, censor);
         }
     }
 }

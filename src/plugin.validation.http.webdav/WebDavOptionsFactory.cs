@@ -6,10 +6,8 @@ using System.Threading.Tasks;
 
 namespace PKISharp.WACS.Plugins.ValidationPlugins.Http
 {
-    internal class WebDavOptionsFactory : HttpValidationOptionsFactory<WebDavOptions>
+    internal class WebDavOptionsFactory(Target target, ArgumentsInputService arguments) : HttpValidationOptionsFactory<WebDavOptions, WebDavArguments>(arguments, target)
     {
-        public WebDavOptionsFactory(Target target, ArgumentsInputService arguments) : base(arguments, target) { }
-
         public override bool PathIsValid(string webRoot)
         {
             return
@@ -22,18 +20,18 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Http
 
         public override string[] WebrootHint(bool allowEmtpy)
         {
-            return new[] {
+            return [
                 "WebDav path",
                 "Example, \\\\domain.com:80\\",
                 "Example, \\\\domain.com:443\\"
-            };
+            ];
         }
 
         public override async Task<WebDavOptions?> Default()
         {
             return new WebDavOptions(await BaseDefault())
             {
-                Credential = await NetworkCredentialOptions.Create(_arguments)
+                Credential = await NetworkCredentialOptions.Create<WebDavArguments>(_arguments)
             };
         }
 
@@ -41,7 +39,7 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Http
         {
             return new WebDavOptions(await BaseAquire(inputService))
             {
-                Credential = await NetworkCredentialOptions.Create(_arguments, inputService, "WebDav server")
+                Credential = await NetworkCredentialOptions.Create<WebDavArguments>(_arguments, inputService, "WebDav server")
             };
         }
 
@@ -53,7 +51,7 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Http
             }
             if (options.Credential != null)
             {
-                foreach (var x in options.Credential.Describe(_arguments))
+                foreach (var x in options.Credential.Describe<WebDavArguments>(_arguments))
                 {
                     yield return x;
                 }

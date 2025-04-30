@@ -4,24 +4,15 @@ using Azure.Identity;
 using Azure.ResourceManager;
 using PKISharp.WACS.Services;
 using System;
+using System.Net.Http;
+using System.Threading.Tasks;
 
 namespace PKISharp.WACS.Plugins.Azure.Common
 {
-    public class AzureHelpers
+    public class AzureHelpers(
+        IAzureOptionsCommon options,
+        SecretServiceManager ssm)
     {
-        private readonly IAzureOptionsCommon _options;
-        private readonly SecretServiceManager _ssm;
-        private readonly IProxyService _proxyService;
-
-        public AzureHelpers(
-            IAzureOptionsCommon options,
-            IProxyService proxy,
-            SecretServiceManager ssm)
-        {
-            _options = options;
-            _ssm = ssm;
-            _proxyService = proxy;
-        }
 
         /// <summary>
         /// Retrieve active directory settings based on the current Azure environment
@@ -30,11 +21,11 @@ namespace PKISharp.WACS.Plugins.Azure.Common
         private ArmEnvironment ArmEnvironment
         {
             get {
-                if (string.IsNullOrWhiteSpace(_options.AzureEnvironment))
+                if (string.IsNullOrWhiteSpace(options.AzureEnvironment))
                 {
                     return ArmEnvironment.AzurePublicCloud;
                 }
-                return _options.AzureEnvironment switch
+                return options.AzureEnvironment switch
                 {
                     AzureEnvironments.AzureChinaCloud => ArmEnvironment.AzureChina,
                     AzureEnvironments.AzureUSGovernment => ArmEnvironment.AzureGovernment,
@@ -42,33 +33,64 @@ namespace PKISharp.WACS.Plugins.Azure.Common
                     AzureEnvironments.AzureCloud => ArmEnvironment.AzurePublicCloud,
                     null => ArmEnvironment.AzurePublicCloud,
                     "" => ArmEnvironment.AzurePublicCloud,
-                    _ => new ArmEnvironment(new Uri(_options.AzureEnvironment), _options.AzureEnvironment)
+                    _ => new ArmEnvironment(new Uri(options.AzureEnvironment), options.AzureEnvironment)
                 };
             }
         }
 
-        public TokenCredential TokenCredential
+        /// <summary>
+        /// Token endpoint may be different based on chosen region
+        /// </summary>
+        /// <returns></returns>
+        private Uri AzureAuthorityHost
         {
             get
             {
-                return _options.UseMsi
-                      ? new ManagedIdentityCredential()
-                      : new ClientSecretCredential(
-                          _options.TenantId,
-                          _options.ClientId,
-                          _ssm.EvaluateSecret(_options.Secret?.Value));
+                if (ArmEnvironment == ArmEnvironment.AzureChina)
+                {
+                    return AzureAuthorityHosts.AzureChina;
+                }
+                else if (ArmEnvironment == ArmEnvironment.AzureGermany)
+                {
+                    return AzureAuthorityHosts.AzureGermany;
+                }
+                else if (ArmEnvironment == ArmEnvironment.AzureGovernment)
+                {
+                    return AzureAuthorityHosts.AzureGovernment;
+                }
+                return AzureAuthorityHosts.AzurePublicCloud;
             }
         }
 
-        public ArmClientOptions ArmOptions
+        /// <summary>
+        /// Create the right type of TokenCredential based on user preferences
+        /// </summary>
+        public async Task<TokenCredential> GetTokenCredential()
         {
-            get 
+            var tokenOptions = new TokenCredentialOptions() { AuthorityHost = AzureAuthorityHost };
+            if (options.UseMsi && string.IsNullOrEmpty(options.ClientId))
             {
-                return new ArmClientOptions() { 
-                    Environment = ArmEnvironment,
-                    Transport = new HttpClientTransport(_proxyService.GetHttpClient())
-                };
+                return new ManagedIdentityCredential(options: tokenOptions);
             }
+            if (options.UseMsi && !string.IsNullOrEmpty(options.ClientId))
+            {
+                return new ManagedIdentityCredential(options.ClientId, options: tokenOptions);
+            }
+            var clientSecret = await ssm.EvaluateSecret(options.Secret?.Value);
+            return new ClientSecretCredential(
+                    options.TenantId,
+                    options.ClientId,
+                    clientSecret,
+                    options: tokenOptions);
+        }
+
+        public ArmClientOptions ArmOptions(HttpClient client)
+        {
+            return new ArmClientOptions()
+            {
+                Environment = ArmEnvironment,
+                Transport = new HttpClientTransport(client)
+            };
         }
     }
 }

@@ -5,7 +5,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -101,7 +100,7 @@ namespace PKISharp.WACS.Services
                 }
                 catch (Exception ex)
                 {
-                    _log.Warning("Error deleting {file} from {folder}: {message}", f.Name, _cache.FullName, ex.Message);
+                    _log.Warning(ex, "Error deleting {file} from {folder}", f.Name, _cache.FullName);
                 }
             }
         }
@@ -143,13 +142,13 @@ namespace PKISharp.WACS.Services
         /// <summary>
         /// Encrypt or decrypt the cached private keys
         /// </summary>
-        public void Encrypt()
+        public async Task Encrypt()
         {
             foreach (var f in _cache.EnumerateFiles($"*{KeysPostfix}"))
             {
                 var x = new ProtectedString(File.ReadAllText(f.FullName), _log);
                 _log.Information("Rewriting {x}", f.Name);
-                File.WriteAllText(f.FullName, x.DiskValue(_settings.Security.EncryptConfig));
+                await f.SafeWrite(x.DiskValue(_settings.Security.EncryptConfig));
             }
         }
 
@@ -234,10 +233,10 @@ namespace PKISharp.WACS.Services
                 {
                     ret.Add(FromCache(file, renewal.PfxPassword?.Value));
                 }
-                catch
+                catch (Exception ex)
                 {
                     // File corrupt or invalid password?
-                    _log.Warning("Unable to read {i} from certificate cache", file.Name);
+                    _log.Warning(ex, "Unable to read {i} from certificate cache", file.Name);
                 }
             }
             return ret;
@@ -317,11 +316,11 @@ namespace PKISharp.WACS.Services
         private CertificateInfoCache FromCache(FileInfo pfxFileInfo, string? password)
         {
             var key = pfxFileInfo.FullName;
-            if (_infoCache.ContainsKey(key))
+            if (_infoCache.TryGetValue(key, out var value))
             {
-                if (_infoCache[key].CacheFile.LastWriteTime == pfxFileInfo.LastWriteTime)
+                if (value.CacheFile.LastWriteTime == pfxFileInfo.LastWriteTime)
                 {
-                    return _infoCache[key];
+                    return value;
                 }
                 else
                 {
@@ -334,7 +333,7 @@ namespace PKISharp.WACS.Services
             }
             return _infoCache[key];
         }
-        private readonly Dictionary<string, CertificateInfoCache> _infoCache = new();
+        private readonly Dictionary<string, CertificateInfoCache> _infoCache = [];
 
         /// <summary>
         /// Path where the private key may be stored
@@ -366,7 +365,7 @@ namespace PKISharp.WACS.Services
         {
             ClearCache(order, CsrPostFix);
             var csrPath = new FileInfo(GetPath(order.Renewal, $"-{CacheKey(order)}{CsrPostFix}"));
-            await File.WriteAllTextAsync(csrPath.FullName, csr);
+            await csrPath.SafeWrite(csr);
             _log.Debug("CSR stored at {path} in certificate cache folder {folder}",
                 csrPath.Name,
                 csrPath.Directory?.FullName);

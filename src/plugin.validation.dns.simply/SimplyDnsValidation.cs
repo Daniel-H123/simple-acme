@@ -6,34 +6,29 @@ using PKISharp.WACS.Plugins.ValidationPlugins.Simply;
 using PKISharp.WACS.Services;
 using System;
 using System.Linq;
-using System.Runtime.Versioning;
+using System.Net.Http;
 using System.Threading.Tasks;
-
-[assembly: SupportedOSPlatform("windows")]
 
 namespace PKISharp.WACS.Plugins.ValidationPlugins
 {
-    [IPlugin.Plugin<
+    [IPlugin.Plugin1<
         SimplyOptions, SimplyOptionsFactory,
-        DnsValidationCapability, SimplyJson>
+        DnsValidationCapability, SimplyJson, SimplyArguments>
         ("3693c40c-7c2f-4b70-aead-27869d8cbdf3", 
-        "Simply", "Create verification records in Simply DNS")]
-    internal class SimplyDnsValidation : DnsValidation<SimplyDnsValidation>
+        "Simply", "Create verification records in Simply.com DNS", 
+        Name = "Simply.com", External = true)]
+    internal class SimplyDnsValidation(
+        LookupClientProvider dnsClient,
+        ILogService logService,
+        ISettingsService settings,
+        IProxyService proxyService,
+        SecretServiceManager ssm,
+        SimplyOptions options) : DnsValidation<SimplyDnsValidation, SimplyDnsClient>(dnsClient, logService, settings, proxyService)
     {
-        private readonly SimplyDnsClient _client;
-
-        public SimplyDnsValidation(
-            LookupClientProvider dnsClient, 
-            ILogService logService, 
-            ISettingsService settings,
-            IProxyService proxyService,
-            SecretServiceManager ssm,
-            SimplyOptions options)
-            : base(dnsClient, logService, settings) 
-            => _client = new SimplyDnsClient(
-                options.Account ?? "",
-                ssm.EvaluateSecret(options.ApiKey) ?? "",
-                proxyService.GetHttpClient());
+        protected override async Task<SimplyDnsClient> CreateClient(HttpClient httpClient) =>
+            new (options.Account ?? "",
+                await ssm.EvaluateSecret(options.ApiKey) ?? "",
+                httpClient);
 
         public override async Task<bool> CreateRecord(DnsValidationRecord record)
         {
@@ -45,12 +40,13 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins
                 {
                     throw new InvalidOperationException();
                 }
-                await _client.CreateRecordAsync(product.Object, recordName, record.Value);
+                var client = await GetClient();
+                await client.CreateRecordAsync(product.Object, recordName, record.Value);
                 return true;
             }
             catch (Exception ex)
             {
-                _log.Warning($"Unable to create record at Simply: {ex.Message}");
+                _log.Warning(ex, $"Unable to create record at Simply");
             }
             return false;
         }
@@ -65,23 +61,21 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins
                 {
                     throw new InvalidOperationException();
                 }
-                await _client.DeleteRecordAsync(product.Object, record.Authority.Domain, record.Value);
+                var client = await GetClient();
+                await client.DeleteRecordAsync(product.Object, record.Authority.Domain, record.Value);
             }
             catch (Exception ex)
             {
-                _log.Warning($"Unable to delete record from Simply: {ex.Message}");
+                _log.Warning(ex, $"Unable to delete record from Simply");
             }
         }
 
         private async Task<Product> GetProductAsync(string recordName)
         {
-            var products = await _client.GetAllProducts();
+            var client = await GetClient();
+            var products = await client.GetAllProducts();
             var product = FindBestMatch(products.ToDictionary(x => x.Domain?.NameIdn ?? "", x => x), recordName);
-            if (product is null)
-            {
-                throw new Exception($"Unable to find product for record '{recordName}'");
-            }
-            return product;
+            return product is null ? throw new Exception($"Unable to find product for record '{recordName}'") : product;
         }
     }
 }

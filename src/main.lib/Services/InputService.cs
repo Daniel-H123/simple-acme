@@ -8,24 +8,14 @@ using System.Threading.Tasks;
 
 namespace PKISharp.WACS.Services
 {
-    public class InputService : IInputService
+    public class InputService(MainArguments arguments, ISettingsService settings, ILogService log) : IInputService
     {
-        private readonly MainArguments _arguments;
-        private readonly ILogService _log;
-        private readonly ISettingsService _settings;
         private const string _cancelCommand = "C";
         private bool _dirty;
 
-        public InputService(MainArguments arguments, ISettingsService settings, ILogService log)
-        {
-            _log = log;
-            _arguments = arguments;
-            _settings = settings;
-        }
-
         private void Validate(string what)
         {
-            if (_arguments.Renew && !_arguments.Test)
+            if (arguments.Renew && !arguments.Test)
             {
                 throw new Exception($"User input '{what}' should not be needed in --renew mode.");
             }
@@ -33,9 +23,9 @@ namespace PKISharp.WACS.Services
 
         public void CreateSpace()
         {
-            if (_log.Dirty || _dirty)
+            if (log.Dirty || _dirty)
             {
-                _log.Dirty = false;
+                log.Dirty = false;
                 _dirty = false;
                 WriteLine();
             }
@@ -64,8 +54,11 @@ namespace PKISharp.WACS.Services
             Write($"{text.PadRight(size)}\n", color);
         }
 
-        private const string Black = "\u001b[40m";
-        private const string Reset = "\u001b[0m";
+        internal static bool SupportsVT100() => !OperatingSystem.IsWindows() || Environment.OSVersion.Version.Major >= 10;
+        internal const string Green = "\u001b[32m";
+        internal const string Black = "\u001b[40m";
+        internal const string Reset = "\u001b[0m";
+
         private void Write(string? text = "", ConsoleColor? color = null)
         {
             text ??= "";
@@ -73,8 +66,7 @@ namespace PKISharp.WACS.Services
             {
                 Console.ForegroundColor = color.Value;
             }
-            if (Environment.OSVersion.Version.Major >= 10 && 
-                _settings.UI?.Color?.Background == "black")
+            if (SupportsVT100() && settings.UI?.Color?.Background == "black")
             {
                 text = $"{Black}{text}{Reset}";
             }
@@ -120,7 +112,7 @@ namespace PKISharp.WACS.Services
                         WriteLine();
                         return Task.FromResult(false);
                     default:
-                        _log.Verbose("Unexpected key {key} pressed", response.Key);
+                        log.Verbose("Unexpected key {key} pressed", response.Key);
                         continue;
                 }
             }
@@ -200,7 +192,7 @@ namespace PKISharp.WACS.Services
             }
             else
             {
-                _log.Warning("Invalid number: {ret}", str);
+                log.Warning("Invalid number: {ret}", str);
                 return null;
             }
         }
@@ -330,11 +322,11 @@ namespace PKISharp.WACS.Services
                 // add a new line because user pressed enter at the end of their password
                 WriteLine();
                 _dirty = true;
-                _log.Dirty = true;
+                log.Dirty = true;
             }
             catch (Exception ex)
             {
-                _log.Error("Error reading Password: {@ex}", ex);
+                log.Error("Error reading Password: {@ex}", ex);
             }
 
             // Return null instead of emtpy string to save storage
@@ -367,7 +359,7 @@ namespace PKISharp.WACS.Services
             var baseChoices = options.Select(creator).ToList();
             if (!baseChoices.Any(x => !x.Disabled))
             {
-                _log.Warning("No options available");
+                log.Warning("No options available");
                 return default;
             }
             var defaults = baseChoices.Where(x => x.Default);
@@ -404,7 +396,7 @@ namespace PKISharp.WACS.Services
         /// <param name="choices"></param>
         public async Task<T> ChooseFromMenu<T>(string what, List<Choice<T>> choices, Func<string, Choice<T>>? unexpected = null)
         {
-            if (!choices.Any())
+            if (choices.Count == 0)
             {
                 throw new Exception("No options available");
             }
@@ -451,7 +443,7 @@ namespace PKISharp.WACS.Services
                     if (selected != null && selected.Disabled)
                     {
                         var disabledReason = selected.DisabledReason ?? "Run as Administator to enable all features.";
-                        _log.Warning($"The option you have chosen is currently disabled. {disabledReason}");
+                        log.Warning($"The option you have chosen is currently disabled. {disabledReason}");
                         selected = null;
                     }
 
@@ -495,8 +487,8 @@ namespace PKISharp.WACS.Services
                     }
                 }
                 var page = listItems.
-                    Skip(currentPage * _settings.UI.PageSize).
-                    Take(_settings.UI.PageSize);
+                    Skip(currentPage * settings.UI.PageSize).
+                    Take(settings.UI.PageSize);
                 foreach (var target in page)
                 {
                     target.Command ??= (currentIndex + 1).ToString();
@@ -523,7 +515,7 @@ namespace PKISharp.WACS.Services
             WriteLine();
         }
 
-        public string FormatDate(DateTime date) => date.ToString(_settings.UI.DateFormat);
+        public string FormatDate(DateTime date) => date.ToString(settings.UI.DateFormat);
     }
 
 }

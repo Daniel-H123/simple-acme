@@ -1,4 +1,5 @@
-﻿using PKISharp.WACS.Services;
+﻿using PKISharp.WACS.Extensions;
+using PKISharp.WACS.Services;
 using PKISharp.WACS.Services.Serialization;
 using System;
 using System.Collections.Generic;
@@ -6,13 +7,14 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading.Tasks;
 
 namespace PKISharp.WACS.Plugins.SecretPlugins
 {
     /// <summary>
     /// Save secrets to a JSON file in the configuration folder, protected by ProtectedStrings
     /// </summary>
-    class JsonSecretService : ISecretService
+    internal class JsonSecretService : ISecretService
     {
         private readonly FileInfo _file;
         private readonly List<CredentialEntry> _secrets;
@@ -42,7 +44,7 @@ namespace PKISharp.WACS.Plugins.SecretPlugins
                 path = Path.Join(settings.Client.ConfigurationPath, "secrets.json");
             }
             _file = new FileInfo(path);
-            _secrets = new List<CredentialEntry>();
+            _secrets = [];
             if (_file.Exists)
             {
                 var options = new JsonSerializerOptions
@@ -72,21 +74,15 @@ namespace PKISharp.WACS.Plugins.SecretPlugins
         /// </summary>
         /// <param name="identifier"></param>
         /// <returns></returns>
-        public string? GetSecret(string? identifier)
-        { 
-            if (string.IsNullOrWhiteSpace(identifier))
-            {
-                return identifier;
-            }
-            return _secrets.FirstOrDefault(x => string.Equals(x.Key, identifier, StringComparison.OrdinalIgnoreCase))?.Secret?.Value ?? identifier;
-        }
+        public Task<string?> GetSecret(string? identifier) => 
+            Task.FromResult(_secrets.FirstOrDefault(x => string.Equals(x.Key, identifier, StringComparison.OrdinalIgnoreCase))?.Secret?.Value);
 
         /// <summary>
         /// Add or overwrite secret, return the key to store
         /// </summary>
         /// <param name="identifier"></param>
         /// <param name="secret"></param>
-        public void PutSecret(string identifier, string secret)
+        public async Task PutSecret(string identifier, string secret)
         {
             var existing = _secrets.FirstOrDefault(x => x.Key == identifier);
             if (existing != null)
@@ -101,13 +97,13 @@ namespace PKISharp.WACS.Plugins.SecretPlugins
                     Secret = new ProtectedString(secret)
                 });
             }
-            Save();
+            await Save();
         }
 
         /// <summary>
         /// Save files back to JSON
         /// </summary>
-        private void Save()
+        private async Task Save()
         {
             var options = new JsonSerializerOptions();
             options.Converters.Add(new ProtectedStringConverter(_log, _settings));
@@ -116,35 +112,27 @@ namespace PKISharp.WACS.Plugins.SecretPlugins
             var newData = JsonSerializer.Serialize(_secrets, _wacsJson.ListCredentialEntry);
             if (newData != null)
             {
-                if (_file.Exists)
-                {
-                    File.WriteAllText(_file.FullName + ".new", newData);
-                    File.Replace(_file.FullName + ".new", _file.FullName, _file.FullName + ".previous", true);
-                    File.Delete(_file.FullName + ".previous");
-                }
-                else
-                {
-                    File.WriteAllText(_file.FullName, newData);
-                }
+                await _file.SafeWrite(newData);
             }
         }
 
-        public IEnumerable<string> ListKeys()
-        {
-            return _secrets.Select(x => x.Key).Where(x => !string.IsNullOrEmpty(x)).OfType<string>();
-        }
+        public IEnumerable<string> ListKeys() => 
+            _secrets.
+                Select(x => x.Key).
+                Where(x => !string.IsNullOrEmpty(x)).
+                OfType<string>();
 
-        public void DeleteSecret(string key)
+        public async Task DeleteSecret(string key)
         {
             var item = _secrets.Where(x => x.Key == key).FirstOrDefault();
             if (item != null)
             {
                 _ = _secrets.Remove(item);
-                Save();
+                await Save();
             }
         }
 
-        public void Encrypt() => Save();
+        public async Task Encrypt() => await Save();
 
         /// <summary>
         /// Interal data storage format

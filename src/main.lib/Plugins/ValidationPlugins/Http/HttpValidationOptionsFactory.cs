@@ -3,27 +3,23 @@ using PKISharp.WACS.DomainObjects;
 using PKISharp.WACS.Plugins.Base.Factories;
 using PKISharp.WACS.Services;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading.Tasks;
 
-namespace PKISharp.WACS.Plugins.ValidationPlugins
+namespace PKISharp.WACS.Plugins.ValidationPlugins.Http
 {
-    public abstract class HttpValidationOptionsFactory<TOptions> : 
+    public abstract class HttpValidationOptionsFactory<TOptions, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicProperties)] TArguments>(ArgumentsInputService arguments, Target target) : 
         PluginOptionsFactory<TOptions>
         where TOptions : HttpValidationOptions, new()
+        where TArguments : HttpValidationArguments, new()
     {
-        protected readonly ArgumentsInputService _arguments;
-        protected readonly Target _target;
-
-        public HttpValidationOptionsFactory(ArgumentsInputService arguments, Target target) 
-        {
-            _arguments = arguments;
-            _target = target;
-        }
+        protected readonly ArgumentsInputService _arguments = arguments;
+        protected readonly Target _target = target;
 
         private ArgumentResult<string?> Path(bool allowEmpty)
         {
             var pathArg = _arguments.
-                GetString<HttpValidationArguments>(x => x.WebRoot).
+                GetString<TArguments>(x => x.WebRoot).
                 Validate(p => Task.FromResult(PathIsValid(p!)), $"invalid path");
             if (!allowEmpty)
             {
@@ -34,7 +30,7 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins
 
         private ArgumentResult<bool?> CopyWebConfig =>
             _arguments.
-                GetBool<HttpValidationArguments>(x => x.ManualTargetIsIIS).
+                GetBool<TArguments>(x => x.ManualTargetIsIIS).
                 DefaultAsNull().
                 WithDefault(false);
 
@@ -94,7 +90,7 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins
             {
                 ret.Add("Leave empty to automatically read the path from IIS");
             }
-            return ret.ToArray();
+            return [.. ret];
         }
 
         public override IEnumerable<(CommandLineAttribute, object?)> Describe(TOptions options)

@@ -6,56 +6,31 @@ using PKISharp.WACS.Services;
 using System;
 using System.Linq;
 using System.Net.Http;
-using System.Runtime.Versioning;
 using System.Threading.Tasks;
 using TencentCloud.Common;
 using TencentCloud.Common.Profile;
 
-[assembly: SupportedOSPlatform("windows")]
-
+//Api Key: http://console.cloud.tencent.com/cam/capi
+//Api Doc: https://cloud.tencent.com/document/api/1427/56166
 namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
 {
-    [IPlugin.Plugin<
-        TencentOptions, TencentOptionsFactory,
-        DnsValidationCapability, TencentJson>
+    [IPlugin.Plugin1<TencentOptions, TencentOptionsFactory, DnsValidationCapability, TencentJson, TencentArguments>
         ("6ea628c3-0f74-68bb-cf17-4fdd3d53f3af",
-        "Tencent", "Create verification records in Tencent DNS")]
-    public class Tencent : DnsValidation<Tencent>, IDisposable
+        "Tencent", "Create verification records in Tencent DNS",
+        Name = "Tencent Cloud", External = true)]
+    public class Tencent(SecretServiceManager ssm,
+        LookupClientProvider dnsClient, ILogService log, ISettingsService settings, IProxyService proxy,
+        TencentOptions options) : DnsValidation<Tencent, CommonClient>(dnsClient, log, settings, proxy)
     {
-        private TencentOptions _options { get; }
-        private SecretServiceManager _ssm { get; }
-        private HttpClient _hc { get; }
-        private Credential _cred { get; }
-
-        public Tencent(
-            TencentOptions options,
-            SecretServiceManager ssm,
-            IProxyService proxyService,
-            LookupClientProvider dnsClient,
-            ILogService log,
-            ISettingsService settings) : base(dnsClient, log, settings)
-        {
-            _options = options;
-            _ssm = ssm;
-            _hc = proxyService.GetHttpClient();
-            //
-            _cred = new Credential
-            {
-                SecretId = _ssm.EvaluateSecret(_options.ApiID),
-                SecretKey = _ssm.EvaluateSecret(_options.ApiKey),
-            };
-        }
-
         public override async Task<bool> CreateRecord(DnsValidationRecord record)
         {
-            await Task.Delay(0);
             try
             {
-                var identifier = GetDomain(record) ?? throw new($"The domain name cannot be found: {record.Context.Identifier}");
+                var identifier = await GetDomain(record) ?? throw new($"The domain name cannot be found: {record.Context.Identifier}");
                 var domain = record.Authority.Domain;
                 var value = record.Value;
                 //Add Record
-                return AddRecord(identifier, domain, value);
+                return await AddRecord(identifier, domain, value);
             }
             catch (Exception ex)
             {
@@ -68,13 +43,12 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
 
         public override async Task DeleteRecord(DnsValidationRecord record)
         {
-            await Task.Delay(0);
             try
             {
-                var identifier = GetDomain(record) ?? throw new($"The domain name cannot be found: {record.Context.Identifier}");
+                var identifier = await GetDomain(record) ?? throw new($"The domain name cannot be found: {record.Context.Identifier}");
                 var domain = record.Authority.Domain;
                 //Delete Record
-                _ = DelRecord(identifier, domain);
+                _ = await DelRecord(identifier, domain);
             }
             catch (Exception ex)
             {
@@ -93,13 +67,13 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
         /// <param name="subDomain">SubDomain</param>
         /// <param name="value">Value</param>
         /// <returns></returns>
-        private bool AddRecord(string domain, string subDomain, string value)
+        private async Task<bool> AddRecord(string domain, string subDomain, string value)
         {
             subDomain = subDomain.Replace($".{domain}", "");
             //Delete Record
             _ = DelRecord(domain, subDomain);
             //Add Record
-            var client = GetCommonClient();
+            var client = await GetClient();
             var param = new
             {
                 Domain = domain,
@@ -110,8 +84,7 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
             };
             var req = new CommonRequest(param);
             var act = "CreateRecord";
-            var resp = client.Call(req, act);
-            //Console.WriteLine(resp);
+            client.Call(req, act);
             return true;
         }
 
@@ -121,19 +94,18 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
         /// <param name="domain">Domain</param>
         /// <param name="subDomain">SubDomain</param>
         /// <returns></returns>
-        private bool DelRecord(string domain, string subDomain)
+        private async Task<bool> DelRecord(string domain, string subDomain)
         {
             subDomain = subDomain.Replace($".{domain}", "");
             //Get RecordID
             var recordId = GetRecordID(domain, subDomain);
             if (recordId == default) return false;
             //Delete Record
-            var client = GetCommonClient();
+            var client = await GetClient();
             var param = new { Domain = domain, RecordId = recordId };
             var req = new CommonRequest(param);
             var act = "DeleteRecord";
-            var resp = client.Call(req, act);
-            //Console.WriteLine(resp);
+            client.Call(req, act);
             return true;
         }
 
@@ -143,9 +115,9 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
         /// <param name="domain">Domain</param>
         /// <param name="subDomain">SubDomain</param>
         /// <returns></returns>
-        private long GetRecordID(string domain, string subDomain)
+        private async Task<long> GetRecordID(string domain, string subDomain)
         {
-            var client = GetCommonClient();
+            var client = await GetClient();
             var param = new { Domain = domain };
             var req = new CommonRequest(param);
             var act = "DescribeRecordList";
@@ -163,9 +135,9 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
         /// </summary>
         /// <param name="record">DnsValidationRecord</param>
         /// <returns></returns>
-        private string? GetDomain(DnsValidationRecord record)
+        private async Task<string?> GetDomain(DnsValidationRecord record)
         {
-            var client = GetCommonClient();
+            var client = await GetClient();
             var param = new { };
             var req = new CommonRequest(param);
             var act = "DescribeDomainList";
@@ -191,23 +163,25 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
         /// <param name="regionTemp">Region</param>
         /// <param name="endpointTemp">DnsPodServer</param>
         /// <returns></returns>
-        private CommonClient GetCommonClient(string? modTemp = default, string? verTemp = default, string? regionTemp = default, string? endpointTemp = default)
+        protected override async Task<CommonClient> CreateClient(HttpClient http)
         {
-            var mod = modTemp ?? "dnspod";
-            var ver = verTemp ?? "2021-03-23";
-            var region = regionTemp ?? "";
+            var mod = "dnspod";
+            var ver = "2021-03-23";
+            var region = "";
             var hpf = new HttpProfile
             {
                 ReqMethod = "POST",
-                Endpoint = endpointTemp ?? DnsPodServer,
+                Endpoint = DnsPodServer,
             };
             var cpf = new ClientProfile(ClientProfile.SIGN_TC3SHA256, hpf);
-            var client = new CommonClient(mod, ver, _cred, region, cpf);
-            return client;
+            var cred = new Credential()
+            {
+                SecretId = await ssm.EvaluateSecret(options.ApiID),
+                SecretKey = await ssm.EvaluateSecret(options.ApiKey)
+            };
+            return new CommonClient(mod, ver, cred, region, cpf);
         }
 
         #endregion PrivateLogic
-
-        public void Dispose() => _hc.Dispose();
     }
 }

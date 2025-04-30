@@ -23,14 +23,14 @@ namespace PKISharp.WACS.Services
         {
             _log = logger;
             _assemblyService = assemblyService;
-            _plugins = new List<Plugin>();
+            _plugins = [];
             AddPluginType<ITargetPlugin>(Steps.Source);
             AddPluginType<IValidationPlugin>(Steps.Validation);
             AddPluginType<IOrderPlugin>(Steps.Order);
             AddPluginType<ICsrPlugin>(Steps.Csr);
             AddPluginType<IStorePlugin>(Steps.Store);
             AddPluginType<IInstallationPlugin>(Steps.Installation);
-            _secretServices = GetPluginType<ISecretService>("secret");
+            _secretServices = GetPluginType<ISecretProvider>("secret");
             _notificationTargets = GetPluginType<INotificationTarget>("notification");
         }
 
@@ -114,13 +114,13 @@ namespace PKISharp.WACS.Services
         /// </summary>
         /// <param name="scope"></param>
         /// <param name="step"></param>
-        /// <param name="name"></param>
+        /// <param name="trigger"></param>
         /// <param name="parameter"></param>
         /// <returns></returns>
-        public Plugin? GetPlugin(Steps step, string name, string? parameter = null)
+        public Plugin? GetPlugin(Steps step, string trigger, string? parameter = null)
         {
             var plugins = GetPlugins(step).
-                Where(s => string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase)).
+                Where(s => string.Equals(s.Trigger, trigger, StringComparison.OrdinalIgnoreCase)).
                 ToList();
             if (step == Steps.Validation)
             {
@@ -201,7 +201,14 @@ namespace PKISharp.WACS.Services
             _ = list.Where(x => x.Assembly != typeof(PluginService).Assembly).
                 All(x =>
                 {
-                    _log.Verbose("Loaded {type} plugin {name} from {location}", type, x.Name, x.Assembly.Location);
+                    if (!string.IsNullOrWhiteSpace(x.Assembly.Location))
+                    {
+                        _log.Verbose("Loaded {type} plugin {name} from {location}", type, x.Name, x.Assembly.Location);
+                    } 
+                    else
+                    {
+                        _log.Verbose("Loaded {type} plugin {name}", type, x.Name);
+                    }
                     return true;
                 });
         }

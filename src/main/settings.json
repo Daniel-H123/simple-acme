@@ -1,6 +1,6 @@
 {
   "Client": {
-    "ClientName": "win-acme",
+    "ClientName": "simple-acme",
     "ConfigurationPath": null,
     "LogPath": null,
     "VersionCheck": false
@@ -21,7 +21,9 @@
     "ValidateServerCertificate": true,
     "RetryCount": 15,
     "RetryInterval": 5,
-    "PreferredIssuer": null
+    "PreferredIssuer": null,
+    "MaxDomains": 100,
+    "PublicSuffixListUri": "https://publicsuffix.org/list/public_suffix_list.dat"
   },
   "Execution": {
     "DefaultPreExecutionScript": null,
@@ -81,6 +83,8 @@
     "PreValidateDns": true,
     "PreValidateDnsRetryCount": 10,
     "PreValidateDnsRetryInterval": 30,
+    "PreValidateDnsLocal": false,
+    "DnsPropagationDelay": 30,
     "AllowDnsSubstitution": true,
     "DnsServers": [ "[System]" ],
     "Ftp": {
@@ -130,6 +134,10 @@
   "Secrets": {
     "Json": {
       "FilePath": null
+    },
+    "Script": {
+      "Get": null,
+      "GetArguments": null
     }
   }
 }

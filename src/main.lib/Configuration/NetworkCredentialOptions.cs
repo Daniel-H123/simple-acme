@@ -1,14 +1,20 @@
-﻿using PKISharp.WACS.Configuration.Arguments;
-using PKISharp.WACS.Extensions;
+﻿using PKISharp.WACS.Extensions;
 using PKISharp.WACS.Services;
 using PKISharp.WACS.Services.Serialization;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 
 namespace PKISharp.WACS.Configuration
 {
+    public interface INetworkCredentialArguments : IArguments
+    {
+        public string? UserName { get; }
+        public string? Password { get; }
+    }
+
     public class NetworkCredentialOptions
     {
         public string? UserName { get; set; }
@@ -16,9 +22,9 @@ namespace PKISharp.WACS.Configuration
         [JsonPropertyName("PasswordSafe")]
         public ProtectedString? Password { get; set; }
 
-        public NetworkCredential GetCredential(
+        public async Task<NetworkCredential> GetCredential(
             SecretServiceManager secretService) =>
-            new(UserName, secretService.EvaluateSecret(Password?.Value));
+            new(UserName, await secretService.EvaluateSecret(Password?.Value));
 
         public void Show(IInputService input)
         {
@@ -35,26 +41,29 @@ namespace PKISharp.WACS.Configuration
             Password = password;
         }
 
-        public static async Task<NetworkCredentialOptions> Create(ArgumentsInputService arguments)
+        public static async Task<NetworkCredentialOptions> Create<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicProperties)] T>(ArgumentsInputService arguments) 
+            where T : class, INetworkCredentialArguments, new()
         {
             return new NetworkCredentialOptions(
-                await arguments.GetString<NetworkCredentialArguments>(x => x.UserName).GetValue(),
-                await arguments.GetProtectedString<NetworkCredentialArguments>(x => x.Password).GetValue()
+                await arguments.GetString<T>(x => x.UserName).GetValue(),
+                await arguments.GetProtectedString<T>(x => x.Password).GetValue()
             );
         }
 
-        public static async Task<NetworkCredentialOptions> Create(ArgumentsInputService arguments, IInputService input, string purpose)
+        public static async Task<NetworkCredentialOptions> Create<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicProperties)] T>(ArgumentsInputService arguments, IInputService input, string purpose)
+            where T : class, INetworkCredentialArguments, new()
         {
             return new NetworkCredentialOptions(
-                await arguments.GetString<NetworkCredentialArguments>(x => x.UserName).Interactive(input, purpose + " username").GetValue(),
-                await arguments.GetProtectedString<NetworkCredentialArguments>(x => x.Password).Interactive(input, purpose + "password").GetValue()
+                await arguments.GetString<T>(x => x.UserName).Interactive(input, purpose + " username").GetValue(),
+                await arguments.GetProtectedString<T>(x => x.Password).Interactive(input, purpose + "password").GetValue()
             );
         }
 
-        public IEnumerable<(CommandLineAttribute, object?)> Describe(ArgumentsInputService arguments)
+        public IEnumerable<(CommandLineAttribute, object?)> Describe<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicProperties)] T>(ArgumentsInputService arguments)
+            where T : class, INetworkCredentialArguments, new()
         {
-            yield return (arguments.GetString<NetworkCredentialArguments>(x => x.UserName).Meta, UserName);
-            yield return (arguments.GetString<NetworkCredentialArguments>(x => x.Password).Meta, Password);
+            yield return (arguments.GetString<T>(x => x.UserName).Meta, UserName);
+            yield return (arguments.GetString<T>(x => x.Password).Meta, Password);
         }
     }
 }

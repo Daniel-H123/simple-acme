@@ -1,8 +1,8 @@
 ﻿using System.Text.Json.Serialization;
 using Csr = PKISharp.WACS.Plugins.CsrPlugins;
-using Store = PKISharp.WACS.Plugins.StorePlugins;
 using Installation = PKISharp.WACS.Plugins.InstallationPlugins;
 using Order = PKISharp.WACS.Plugins.OrderPlugins;
+using Store = PKISharp.WACS.Plugins.StorePlugins;
 using Target = PKISharp.WACS.Plugins.TargetPlugins;
 using Validation = PKISharp.WACS.Plugins.ValidationPlugins;
 
@@ -17,8 +17,9 @@ namespace PKISharp.WACS.Services.Serialization
     [JsonSerializable(typeof(Target.IISSiteOptions))]
     [JsonSerializable(typeof(Target.IISSitesOptions))]
     [JsonSerializable(typeof(Target.CsrOptions))]
-    [JsonSerializable(typeof(Validation.Dns.ManualOptions), TypeInfoPropertyName = "DnsManualOptions")]
+    [JsonSerializable(typeof(Validation.Any.ManualOptions), TypeInfoPropertyName = "DnsManualOptions")]
     [JsonSerializable(typeof(Validation.Dns.ScriptOptions))]
+    [JsonSerializable(typeof(Validation.Any.NullOptions), TypeInfoPropertyName = "ValidationNullOptions")]
     [JsonSerializable(typeof(Validation.Http.FileSystemOptions))]
     [JsonSerializable(typeof(Validation.Http.SelfHostingOptions))]
     [JsonSerializable(typeof(Validation.Tls.SelfHostingOptions), TypeInfoPropertyName = "TlsSelfHostingOptions")]
@@ -32,6 +33,7 @@ namespace PKISharp.WACS.Services.Serialization
     [JsonSerializable(typeof(Store.CertificateStoreOptions))]
     [JsonSerializable(typeof(Store.PemFilesOptions))]
     [JsonSerializable(typeof(Store.PfxFileOptions))]
+    [JsonSerializable(typeof(Store.P7bFileOptions))]
     [JsonSerializable(typeof(Installation.IISFtpOptions))]
     [JsonSerializable(typeof(Installation.IISOptions), TypeInfoPropertyName = "InstallationIISOptions")]
     [JsonSerializable(typeof(Installation.IISSiteOptions), TypeInfoPropertyName = "InstallationIISSiteOptions")]

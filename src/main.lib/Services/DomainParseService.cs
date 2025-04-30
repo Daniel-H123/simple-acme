@@ -5,6 +5,7 @@ using Nager.PublicSuffix.Models;
 using Nager.PublicSuffix.RuleParsers;
 using Nager.PublicSuffix.RuleProviders;
 using Nager.PublicSuffix.RuleProviders.CacheProviders;
+using PKISharp.WACS.Extensions;
 using System;
 using System.IO;
 using System.Threading;
@@ -12,13 +13,14 @@ using System.Threading.Tasks;
 
 namespace PKISharp.WACS.Services
 {
-    public class DomainParseService
+    public class DomainParseService(ILogService log, IProxyService proxy, ISettingsService settings)
     {
-        private const string Source = "https://publicsuffix.org/list/public_suffix_list.dat";
-        private readonly DomainParser _parser;
-        private readonly ILogService _log;
-        private readonly ISettingsService _settings;
-        private readonly IProxyService _proxy;
+        private DomainParser? _parser;
+        private readonly ILogService _log = log;
+        private readonly ISettingsService _settings = settings;
+        private readonly IProxyService _proxy = proxy;
+
+        public async Task Initialize() => _parser ??= await CreateParser();
 
         private async Task<DomainParser> CreateParser()
         {
@@ -34,37 +36,42 @@ namespace PKISharp.WACS.Services
             }
             catch (Exception ex)
             {
-                _log.Warning("Error loading static public suffix list from {path}: {ex}", path, ex.Message);
+                _log.Warning(ex, "Error loading static public suffix list from {path}", path);
             }
-            try
+            var update = _settings.Acme.PublicSuffixListUri ?? new Uri("https://publicsuffix.org/list/public_suffix_list.dat");
+            if (update.ToString() != "")
             {
-                var webProvider = new WebTldRuleProvider(_proxy, _log, _settings);
-                if (await webProvider.BuildAsync())
+                try
                 {
-                    provider = webProvider;
+                    var webProvider = new WebTldRuleProvider(_proxy, _log, _settings);
+                    if (await webProvider.BuildAsync())
+                    {
+                        provider = webProvider;
+                    }
                 }
-            }
-            catch (Exception ex)
-            {
-                _log.Warning("Error updating public suffix list from {source}: {ex}", Source, ex.Message);
+                catch (Exception ex)
+                {
+                    _log.Warning(ex, "Error updating public suffix list from {source}", update);
+                }
             }
             if (provider == null)
             {
                 throw new Exception("Public suffix list unavailable");
-            } 
+            }
             return new DomainParser(provider);
         }
 
-        public DomainParseService(ILogService log, IProxyService proxy, ISettingsService settings)
+        private DomainInfo? GetParseResult(string fulldomain)
         {
-            _log = log;
-            _settings = settings;
-            _proxy = proxy;
-            _parser = CreateParser().Result;
+            if (_parser == null)
+            {
+                throw new InvalidOperationException("DomainParseService is not initialized");
+            }
+            return _parser.Parse(fulldomain);
         }
 
-        public string GetTLD(string fulldomain) => _parser.Parse(fulldomain)?.TopLevelDomain ?? throw new Exception($"Unable to parse domain {fulldomain}");
-        public string GetRegisterableDomain(string fulldomain) => _parser.Parse(fulldomain)?.RegistrableDomain ?? throw new Exception($"Unable to parse domain {fulldomain}");
+        public string GetTLD(string fulldomain) => GetParseResult(fulldomain)?.TopLevelDomain ?? fulldomain;
+        public string GetRegisterableDomain(string fulldomain) => GetParseResult(fulldomain)?.RegistrableDomain ?? fulldomain;
 
         /// <summary>
         /// Regular 30 day file cache in the configuration folder
@@ -92,7 +99,7 @@ namespace PKISharp.WACS.Services
                     }
                     catch (Exception ex)
                     {
-                        _log.Warning("Unable to read public suffix list cache from {path}: {ex}", _file.FullName, ex.Message);
+                        _log.Warning(ex, "Unable to read public suffix list cache from {path}", _file.FullName);
                     };
                 }
                 return _memoryCache;
@@ -116,11 +123,11 @@ namespace PKISharp.WACS.Services
                 {
                     try
                     {
-                        await File.WriteAllTextAsync(_file.FullName, val);
+                        await _file.SafeWrite(val);
                     } 
                     catch (Exception ex)
                     {
-                        _log.Warning("Unable to write public suffix list cache to {path}: {ex}", _file.FullName, ex.Message);
+                        _log.Warning(ex, "Unable to write public suffix list cache to {path}", _file.FullName);
                     }
                 }
                 _memoryCache = val;
@@ -131,20 +138,11 @@ namespace PKISharp.WACS.Services
         /// Custom implementation so that we can use the proxy 
         /// that the user has configured and 
         /// </summary>
-        private class WebTldRuleProvider : IRuleProvider
+        private class WebTldRuleProvider(IProxyService proxy, ILogService log, ISettingsService settings) : IRuleProvider
         {
-            private readonly string _fileUrl;
-            private readonly IProxyService _proxy;
-            private readonly ICacheProvider _cache;
-            private readonly DomainDataStructure _data;
-
-            public WebTldRuleProvider(IProxyService proxy, ILogService log, ISettingsService settings)
-            {
-                _fileUrl = "https://publicsuffix.org/list/public_suffix_list.dat";
-                _cache = new FileCacheProvider(log, settings);
-                _proxy = proxy;
-                _data = new DomainDataStructure("*", new TldRule("*"));
-            }
+            private readonly string _fileUrl = "https://publicsuffix.org/list/public_suffix_list.dat";
+            private readonly FileCacheProvider _cache = new(log, settings);
+            private readonly DomainDataStructure _data = new("*", new TldRule("*"));
 
             public async Task<bool> BuildAsync(bool ignoreCache = false, CancellationToken cancel = default)
             {
@@ -162,7 +160,7 @@ namespace PKISharp.WACS.Services
                 {
                     return false;
                 }
-                var ruleParser = new TldRuleParser();
+                var ruleParser = new TldRuleParser(TldRuleDivisionFilter.ICANNOnly);
                 var enumerable = ruleParser.ParseRules(ruleData);
                 _data.AddRules(enumerable);
                 return true;
@@ -172,7 +170,7 @@ namespace PKISharp.WACS.Services
 
             public async Task<string> LoadFromUrl(string url)
             {
-                using var httpClient = _proxy.GetHttpClient();
+                using var httpClient = await proxy.GetHttpClient();
                 using var response = await httpClient.GetAsync(url);
                 if (!response.IsSuccessStatusCode)
                 {

@@ -1,4 +1,5 @@
-﻿using ACMESharp.Protocol;
+﻿using ACMESharp;
+using ACMESharp.Protocol;
 using ACMESharp.Protocol.Resources;
 using PKISharp.WACS.Configuration;
 using PKISharp.WACS.Configuration.Arguments;
@@ -31,6 +32,7 @@ namespace PKISharp.WACS.Clients.Acme
     internal class AcmeClientManager
     {
         private readonly ILogService _log;
+        private readonly IAcmeLogger _acmeLogger;
         private readonly IInputService _input;
         private readonly ISettingsService _settings;
         private readonly ArgumentsParser _arguments;
@@ -39,25 +41,30 @@ namespace PKISharp.WACS.Clients.Acme
         private readonly AccountArguments _accountArguments;
 
         private AcmeProtocolClient? _anonymousClient;
-        private readonly Dictionary<string, AcmeClient> _authorizedClients = new();
+        private readonly Dictionary<string, AcmeClient> _authorizedClients = [];
         private readonly AccountManager _accountManager;
+        private readonly SecretServiceManager _secretServiceManager;
 
         public AcmeClientManager(
             IInputService inputService,
             ArgumentsParser arguments,
-            ILogService log,
+            ILogService log, 
+            IAcmeLogger acmeLogger,
             ISettingsService settings,
             AccountManager accountManager,
             IProxyService proxy,
+            SecretServiceManager secretServiceManager,
             ZeroSsl zeroSsl)
         {
             _log = log;
+            _acmeLogger = acmeLogger;
             _settings = settings;
             _arguments = arguments;
             _accountArguments = _arguments.GetArguments<AccountArguments>() ?? new AccountArguments();
             _input = inputService;
             _proxyService = proxy;
             _accountManager = accountManager;
+            _secretServiceManager = secretServiceManager;
             _zeroSsl = zeroSsl;
         }
 
@@ -68,10 +75,10 @@ namespace PKISharp.WACS.Clients.Acme
         /// <returns></returns>
         internal async Task<AcmeProtocolClient> CreateAnonymousClient()
         {
-            var httpClient = _proxyService.GetHttpClient();
+            var httpClient = await _proxyService.GetHttpClient();
             httpClient.BaseAddress = _settings.BaseUri;
             _log.Verbose("Constructing ACME protocol client...");
-            var client = new AcmeProtocolClient(httpClient, usePostAsGet: _settings.Acme.PostAsGet);
+            var client = new AcmeProtocolClient(httpClient, _acmeLogger, usePostAsGet: _settings.Acme.PostAsGet);
             client.Directory = await EnsureServiceDirectory(client);
             return client;
         }
@@ -102,11 +109,12 @@ namespace PKISharp.WACS.Clients.Acme
                     throw new Exception("AcmeClient was unable to find or create an account");
                 }
                 // Save newly created account to disk
-                _accountManager.StoreAccount(account, name);
+                await _accountManager.StoreAccount(account, name);
             }
 
             // Create authorized account
-            var ret = new AcmeClient(_log, _settings, _proxyService, _anonymousClient.Directory, account);
+            var httpClient = await _proxyService.GetHttpClient(_settings.Acme.ValidateServerCertificate != false);
+            var ret = new AcmeClient(httpClient, _log, _acmeLogger, _settings, _anonymousClient.Directory, account);
             if (!string.IsNullOrWhiteSpace(name))
             {
                 _log.Debug("Using named account {name}...", name);
@@ -125,26 +133,39 @@ namespace PKISharp.WACS.Clients.Acme
         /// <returns></returns>
         private async Task<ServiceDirectory> EnsureServiceDirectory(AcmeProtocolClient client)
         {
-            ServiceDirectory? directory;
-            try
-            {
-                _log.Verbose("Getting service directory...");
-                directory = await client.Backoff(async () => await client.GetDirectoryAsync("directory"), _log);
-                if (directory != null)
-                {
-                    return directory;
-                }
-            }
-            catch
-            {
 
-            }
-            // Perhaps the BaseUri *is* the directory, such
-            // as implemented by Digicert (#1434)
-            directory = await client.Backoff(async () => await client.GetDirectoryAsync(""), _log);
-            if (directory != null)
+            var urlsToTry = new List<string>([""]);
+            if (_settings.BaseUri.Host.EndsWith(".letsencrypt.org") &&
+                string.IsNullOrEmpty(_settings.BaseUri.PathAndQuery.TrimEnd('/')))
             {
-                return directory;
+                // For Let's Encrypt, try the /directory endpoint first,
+                // because historically we have only configured the host
+                // name (e.g. https://acme-v02.api.letsencrypt.org/)
+                urlsToTry.Insert(0, "directory");
+            }
+            else
+            {
+                // For other ACME providers, try the user specified endpoint
+                // first,but offer fallback to /directory for backwards
+                // compatiblity with how the client used to behave.
+                urlsToTry.Insert(1, "directory");
+            }
+            ServiceDirectory? directory;
+            foreach (var urlToTry in urlsToTry)
+            {
+                try
+                {
+                    _log.Debug("Getting service directory from {url}...", string.IsNullOrWhiteSpace(urlToTry) ? _settings.BaseUri : "/" + urlToTry);
+                    directory = await client.Backoff(async () => await client.GetDirectoryAsync(urlToTry), _log);
+                    if (directory != null)
+                    {
+                        return directory;
+                    }
+                } 
+                catch
+                {
+                }
+
             }
             throw new Exception("Unable to get service directory");
         }
@@ -194,7 +215,7 @@ namespace PKISharp.WACS.Clients.Acme
             var contacts = default(string[]);
 
             var eabKid = _accountArguments.EabKeyIdentifier;
-            var eabKey = _accountArguments.EabKey;
+            var eabKey = await _secretServiceManager.EvaluateSecret(_accountArguments.EabKey);
             var eabAlg = _accountArguments.EabAlgorithm ?? "HS256";
             var eabFlow = client.Directory?.Meta?.ExternalAccountRequired ?? false;
             var zeroSslFlow = _settings.BaseUri.Host.Contains("zerossl.com");
@@ -307,7 +328,7 @@ namespace PKISharp.WACS.Clients.Acme
             }
             catch (Exception ex)
             {
-                _log.Error(ex, ex.Message);
+                _log.Error(ex, "Error creating account");
                 return null;
             }
             if (newAccountDetails == default)
@@ -414,7 +435,7 @@ namespace PKISharp.WACS.Clients.Acme
                 newEmails = email.ParseCsv();
                 if (newEmails == null)
                 {
-                    return Array.Empty<string>();
+                    return [];
                 }
             }
             else if (!string.IsNullOrWhiteSpace(email))
@@ -428,13 +449,13 @@ namespace PKISharp.WACS.Clients.Acme
                     _ = new MailAddress(x);
                     return true;
                 }
-                catch
+                catch(Exception ex)
                 {
-                    _log.Warning($"Invalid email: {x}");
+                    _log.Warning(ex, $"Invalid email address specified");
                     return false;
                 }
             }).ToList();
-            if (!newEmails.Any())
+            if (newEmails.Count == 0)
             {
                 _log.Warning("No (valid) email address specified");
             }
@@ -451,10 +472,10 @@ namespace PKISharp.WACS.Clients.Acme
             var client = await GetClient(name);
             var contacts = await GetContacts();
             var newDetails = await client.UpdateAccountAsync(contacts);
-            if (newDetails != null)
+            if (newDetails.Payload != null)
             {
                 client.Account.Details = newDetails;
-                _accountManager.StoreAccount(client.Account, name);
+                await _accountManager.StoreAccount(client.Account, name);
             }
         }
     }

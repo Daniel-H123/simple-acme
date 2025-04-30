@@ -1,6 +1,4 @@
-﻿using System.Collections.Generic;
-
-namespace PKISharp.WACS.Plugins.TargetPlugins
+﻿namespace PKISharp.WACS.Plugins.TargetPlugins
 {
     internal class IISBindingOptions : IISOptions
     {
@@ -11,7 +9,7 @@ namespace PKISharp.WACS.Plugins.TargetPlugins
             {
                 if (IncludeSiteIds == null && value.HasValue)
                 {
-                    IncludeSiteIds = new List<long>() { value.Value };
+                    IncludeSiteIds = [value.Value];
                 }
             }
         }
@@ -26,7 +24,7 @@ namespace PKISharp.WACS.Plugins.TargetPlugins
             {
                 if (IncludeHosts == null && !string.IsNullOrEmpty(value))
                 {
-                    IncludeHosts = new List<string>() { value };
+                    IncludeHosts = [value];
                 }
             }
         }

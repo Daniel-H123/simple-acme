@@ -12,47 +12,26 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
-using System.Runtime.Versioning;
 using System.Threading.Tasks;
-
-[assembly: SupportedOSPlatform("windows")]
 
 namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
 {
-    [IPlugin.Plugin<
+    [IPlugin.Plugin1<
         CloudDnsOptions, CloudDnsOptionsFactory, 
-        DnsValidationCapability, CloudDnsJson>
+        DnsValidationCapability, CloudDnsJson, CloudDnsArguments>
         ("B61505E9-1709-43FD-996F-C74C3686286C",
-        "GCPDns", "Create verification records in Google Cloud DNS")]
-    internal class CloudDns: DnsValidation<CloudDns>
+        "GCPDns", "Create verification records in Google Cloud DNS", 
+        Name = "Cloud DNS", Provider = "Google", Download = "googledns", External = true, Page = "clouddns")]
+    internal class CloudDns(
+        LookupClientProvider dnsClient,
+        ILogService log,
+        IProxyService proxy,
+        ISettingsService settings,
+        CloudDnsOptions options) : DnsValidation<CloudDns, CloudDnsService>(dnsClient, log, settings, proxy)
     {
-        private readonly CloudDnsOptions _options;
-        private readonly CloudDnsService _client;
-        private readonly IProxyService _proxy;
+        private readonly CloudDnsOptions _options = options;
 
-        public CloudDns(
-            LookupClientProvider dnsClient,
-            ILogService log,
-            IProxyService proxy,
-            ISettingsService settings,
-            CloudDnsOptions options) : base(dnsClient, log, settings)
-        {
-            _options = options;
-            _proxy = proxy;
-            _client = CreateDnsService();
-        }
-
-        private class ProxyFactory : HttpClientFactory
-        {
-            private readonly IProxyService _proxy;
-            public ProxyFactory(IProxyService proxy) => _proxy = proxy;
-            protected override HttpMessageHandler CreateHandler(CreateHttpClientArgs args)
-            {
-                return _proxy.GetHttpMessageHandler();
-            }
-        }
-
-        private CloudDnsService CreateDnsService()
+        protected override async Task<CloudDnsService> CreateClient(HttpClient httpClient)
         {
             GoogleCredential credential;
             if (!_options.ServiceAccountKeyPath.ValidFile(_log))
@@ -63,19 +42,27 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
             {
                 credential = GoogleCredential.FromStream(stream);
             }
-
+            var handler = await _proxy.GetHttpMessageHandler();
             var dnsService = new DnsService(new BaseClientService.Initializer()
             {
                 HttpClientInitializer = credential,
-                HttpClientFactory = new ProxyFactory(_proxy),
-                ApplicationName = $"win-acme {VersionService.SoftwareVersion}",
+                HttpClientFactory = new ProxyFactory(handler),
+                ApplicationName = $"simple-acme {VersionService.SoftwareVersion}",
             });
-
             return new CloudDnsService(dnsService);
+        }
+
+        private class ProxyFactory(HttpMessageHandler handler) : HttpClientFactory
+        {
+            protected override HttpMessageHandler CreateHandler(CreateHttpClientArgs args)
+            {
+                return handler;
+            }
         }
 
         public override async Task<bool> CreateRecord(DnsValidationRecord record)
         {
+            var client = await GetClient();
             var recordName = record.Authority.Domain;
             var token = record.Value;
             _log.Information("Creating TXT record {recordName} with value {token}", recordName, token);
@@ -89,19 +76,19 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
 
             try
             {
-                _ = await _client.CreateTxtRecord(_options.ProjectId ?? "", zone, recordName, token);
+                _ = await client.CreateTxtRecord(_options.ProjectId ?? "", zone, recordName, token);
                 return true;
             }
             catch(Exception ex)
             {
-                _log.Warning("Error creating TXT record, {0}", ex.Message);
+                _log.Warning(ex, "Error creating TXT record");
                 return false;
             }
         }
 
         public override async Task DeleteRecord(DnsValidationRecord record)
         {
-
+            var client = await GetClient();
             var recordName = record.Authority.Domain;
             var zone = await GetManagedZone(_options.ProjectId, recordName);
             if (zone == null)
@@ -112,19 +99,20 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
 
             try
             {
-                _ = await _client.DeleteTxtRecord(_options.ProjectId ?? "", zone, recordName);
+                _ = await client.DeleteTxtRecord(_options.ProjectId ?? "", zone, recordName);
                 _log.Debug("Deleted TXT record");
             }
             catch (Exception ex)
             {
-                _log.Warning("Error deleting TXT record, {0}", ex.Message);
+                _log.Warning(ex, "Error deleting TXT record");
                 return;
             }
         }
 
         private async Task<ManagedZone?> GetManagedZone(string? projectId, string recordName)
         {
-            var hostedZones = await _client.GetManagedZones(projectId ?? "");
+            var client = await GetClient();
+            var hostedZones = await client.GetManagedZones(projectId ?? "");
             _log.Debug("Found {count} hosted zones in Google DNS", hostedZones.Count);
 
             var hostedZoneSets = hostedZones.Where(x => x.Visibility == "public").GroupBy(x => x.DnsName);

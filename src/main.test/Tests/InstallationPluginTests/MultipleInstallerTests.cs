@@ -54,7 +54,7 @@ namespace PKISharp.WACS.UnitTests.Tests.InstallationPluginTests
                         _ = builder.RegisterType<SecretService>().As<SecretService>().As<ISecretService>().SingleInstance();
             _ = builder.RegisterType<MockAssemblyService>().As<AssemblyService>();
 
-            var input = new Mock.Services.InputService(new List<string>());
+            var input = new Mock.Services.InputService([]);
             _ = builder.RegisterInstance(input).As<IInputService>();
             _ = builder.RegisterType<SecretService>().As<ISecretService>();
             _ = builder.RegisterType<SecretServiceManager>(); 
@@ -82,12 +82,14 @@ namespace PKISharp.WACS.UnitTests.Tests.InstallationPluginTests
             var scope = builder.Build();
             var resolver = scope.Resolve<IResolver>(new TypedParameter(typeof(ILifetimeScope), scope));
             var first = await resolver.GetInstallationPlugin(
+                plugins.GetPlugins().First(p => p.Backend.IsAssignableTo<ITargetPlugin>()),
                 types.Select(t => plugins.GetPlugins().First(x => x.Backend == t)),
                 chosen);
             Assert.IsNotNull(first);
             Assert.AreEqual(first.OptionsFactory.GetType(), typeof(IISOptionsFactory));
             chosen.Add(first.Meta);
             var second = await resolver.GetInstallationPlugin(
+                plugins.GetPlugins().First(p => p.Backend.IsAssignableTo<ITargetPlugin>()),
                 types.Select(t => plugins.GetPlugins().First(x => x.Backend == t)),
                 chosen);
             Assert.IsNotNull(second);

@@ -7,27 +7,19 @@ using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Threading.Tasks;
 
 namespace PKISharp.WACS.Clients.Acme
 {
     /// <summary>
     /// Manage the account used by the AcmeClient
     /// </summary>
-    class AccountManager
+    internal class AccountManager(
+        ILogService log,
+        ISettingsService settings)
     {
         private const string SignerFileName = "Signer_v2";
         private const string RegistrationFileName = "Registration_v2";
-
-        private readonly ILogService _log;
-        private readonly ISettingsService _settings;
-
-        public AccountManager(
-            ILogService log,
-            ISettingsService settings)
-        {
-            _log = log;
-            _settings = settings;
-        }
 
         /// <summary>
         /// Create a new signer using the specified algorithm
@@ -36,7 +28,7 @@ namespace PKISharp.WACS.Clients.Acme
         /// <returns></returns>
         private AccountSigner NewSigner(string keyType)
         {
-            _log.Debug("Creating new {keyType} signer", keyType);
+            log.Debug("Creating new {keyType} signer", keyType);
             return new AccountSigner(keyType);
         }
 
@@ -55,7 +47,7 @@ namespace PKISharp.WACS.Clients.Acme
             {
                 if (keyType == "ES256")
                 {
-                    _log.Verbose("First chance error generating signer: {cex}", cex.Message);
+                    log.Verbose("First chance error generating signer: {cex}", cex.Message);
                     signer = NewSigner("RS256");
                 } 
                 else
@@ -93,12 +85,12 @@ namespace PKISharp.WACS.Clients.Acme
         /// </summary>
         /// <param name="account"></param>
         /// <param name="name"></param>
-        internal void StoreAccount(Account account, string? name = null)
+        internal async Task StoreAccount(Account account, string? name = null)
         {
             var signerPath = GetPath(SignerFileName, name);
             var detailsPath = GetPath(RegistrationFileName, name);
-            StoreDetails(account.Details, detailsPath);
-            StoreSigner(account.Signer, signerPath);
+            await StoreDetails(account.Details, detailsPath);
+            await StoreSigner(account.Signer, signerPath);
         }
 
         /// <summary>
@@ -114,7 +106,7 @@ namespace PKISharp.WACS.Clients.Acme
                 name = name.CleanPath();
                 file = $"{name}.{file}";
             }
-            return Path.Combine(_settings.Client.ConfigurationPath, file);
+            return Path.Combine(settings.Client.ConfigurationPath, file);
         }
 
         /// <summary>
@@ -128,8 +120,8 @@ namespace PKISharp.WACS.Clients.Acme
             {
                 try
                 {
-                    _log.Debug("Loading signer from {signerPath}", path);
-                    var signerString = new ProtectedString(File.ReadAllText(path), _log);
+                    log.Debug("Loading signer from {signerPath}", path);
+                    var signerString = new ProtectedString(File.ReadAllText(path), log);
                     if (signerString.Value != null)
                     {
                         return JsonSerializer.Deserialize(signerString.Value, AcmeClientJson.Insensitive.AccountSigner);
@@ -137,12 +129,12 @@ namespace PKISharp.WACS.Clients.Acme
                 }
                 catch (Exception ex)
                 {
-                    _log.Error(ex, "Unable to load signer");
+                    log.Error(ex, "Unable to load signer");
                 }
             }
             else
             {
-                _log.Debug("Signer not found at {signerPath}", path);
+                log.Debug("Signer not found at {signerPath}", path);
             }
             return null;
         }
@@ -152,13 +144,13 @@ namespace PKISharp.WACS.Clients.Acme
         /// </summary>
         /// <param name="signer"></param>
         /// <param name="path"></param>
-        private void StoreSigner(AccountSigner? signer, string path)
+        private async Task StoreSigner(AccountSigner? signer, string path)
         {
             if (signer != null)
             {
-                _log.Debug("Saving signer to {SignerPath}", path);
+                log.Debug("Saving signer to {SignerPath}", path);
                 var x = new ProtectedString(JsonSerializer.Serialize(signer, AcmeClientJson.Default.AccountSigner));
-                File.WriteAllText(path, x.DiskValue(_settings.Security.EncryptConfig));
+                await FileInfoExtensions.SafeWrite(path, x.DiskValue(settings.Security.EncryptConfig));
             }
         }
 
@@ -171,12 +163,12 @@ namespace PKISharp.WACS.Clients.Acme
         {
             if (File.Exists(path))
             {
-                _log.Debug("Loading account from {path}", path);
+                log.Debug("Loading account from {path}", path);
                 return JsonSerializer.Deserialize(File.ReadAllText(path), AcmeClientJson.Insensitive.AccountDetails);
             }
             else
             {
-                _log.Debug("Details not found at {path}", path);
+                log.Debug("Details not found at {path}", path);
             }
             return default;
         }
@@ -186,12 +178,12 @@ namespace PKISharp.WACS.Clients.Acme
         /// </summary>
         /// <param name="details"></param>
         /// <param name="path"></param>
-        private void StoreDetails(AccountDetails details, string path)
+        private async Task StoreDetails(AccountDetails details, string path)
         {
             if (details != default)
             {
-                _log.Debug("Saving account to {AccountPath}", path);
-                File.WriteAllText(path, JsonSerializer.Serialize(details, AcmeClientJson.Insensitive.AccountDetails));
+                log.Debug("Saving account to {AccountPath}", path);
+                await FileInfoExtensions.SafeWrite(path, JsonSerializer.Serialize(details, AcmeClientJson.Insensitive.AccountDetails));
             }
         }
 
@@ -201,7 +193,7 @@ namespace PKISharp.WACS.Clients.Acme
         /// <returns></returns>
         internal IEnumerable<string> ListAccounts()
         {
-            var dir = new DirectoryInfo(_settings.Client.ConfigurationPath);
+            var dir = new DirectoryInfo(settings.Client.ConfigurationPath);
             foreach (var account in dir.EnumerateFiles($"*{RegistrationFileName}"))
             {
                 yield return account.Name.Replace(RegistrationFileName, "").TrimEnd('.');
@@ -211,7 +203,7 @@ namespace PKISharp.WACS.Clients.Acme
         /// <summary>
         /// Encrypt/decrypt signer information
         /// </summary>
-        internal void Encrypt()
+        internal async Task Encrypt()
         {
             try
             {
@@ -220,18 +212,18 @@ namespace PKISharp.WACS.Clients.Acme
                     var account = LoadAccount(name);
                     if (account != null)
                     {
-                        StoreAccount(account, name); //forces a re-save of the signer
+                        await StoreAccount(account, name); //forces a re-save of the signer
                     } 
                     else
                     {
-                        _log.Error($"Unable to load account {name}");
+                        log.Error($"Unable to load account {name}");
                     }
                 }
-                _log.Information("Signer re-saved");
+                log.Information("Signer re-saved");
             }
             catch
             {
-                _log.Error("Cannot re-save account (created on a different machine?)");
+                log.Error("Cannot re-save account (created on a different machine?)");
             }
         }
     }

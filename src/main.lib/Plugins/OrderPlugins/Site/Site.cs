@@ -12,9 +12,9 @@ namespace PKISharp.WACS.Plugins.OrderPlugins
         SiteCapability, WacsJsonPlugins>
         ("74a42b2d-8eaa-4f40-ab6a-f55304254143", 
         "Site", "Separate certificate for each IIS site")]
-    class Site : IOrderPlugin
+    internal class Site : IOrderPlugin
     {
-        public IEnumerable<Order> Split(Renewal renewal, Target target) 
+        public List<Order> Split(Renewal renewal, Target target) 
         {
             var ret = new List<Order>();
             foreach (var part in target.Parts)
@@ -27,7 +27,7 @@ namespace PKISharp.WACS.Plugins.OrderPlugins
                 var newTarget = new Target(
                     target.FriendlyName,
                     commonName,
-                    new List<TargetPart> { part });
+                    [part]);
                 var newOrder = new Order(
                     renewal, 
                     newTarget, 

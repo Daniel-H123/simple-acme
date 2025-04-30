@@ -1,5 +1,4 @@
-﻿using System.Collections;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
@@ -10,48 +9,67 @@ namespace PKISharp.WACS.Clients.IIS
     /// Class to communicate desired binding state to the IISclient
     /// Follows the fluent/immutable pattern
     /// </summary>
+    /// <remarks>
+    /// Regular constructor
+    /// </remarks>
+    /// <param name="flags"></param>
+    /// <param name="port"></param>
+    /// <param name="ip"></param>
+    /// <param name="thumbprint"></param>
+    /// <param name="store"></param>
+    /// <param name="host"></param>
+    /// <param name="siteId"></param>
+    /// <param name="updateOnly"></param>
     [DebuggerDisplay("Binding {Binding}")]
-    public class BindingOptions
+    public class BindingOptions(
+        SSLFlags flags = SSLFlags.None,
+        int port = IISClient.DefaultBindingPort,
+        string ip = IISClient.DefaultBindingIp,
+        IEnumerable<byte>? thumbprint = null,
+        string? store = null,
+        string host = "",
+        long? siteId = null,
+        bool updateOnly = IISClient.DefaultUpdateOnly)
     {
         /// <summary>
         /// Desired flags 
         /// </summary>
-        public SSLFlags Flags { get; }
+        public SSLFlags Flags { get; } = flags;
 
         /// <summary>
         /// Port to use when a new binding has to be created
         /// </summary>
-        public int Port { get; }
+        public int Port { get; } = port;
 
         /// <summary>
         /// IP address to use when a new binding has to be created
         /// </summary>
-        public string IP { get; }
+        public string IP { get; } = ip;
 
         /// <summary>
         /// Certificate thumbprint that should be set for the binding
         /// </summary>
-        public IEnumerable<byte>? Thumbprint { get; }
+        public IEnumerable<byte>? Thumbprint { get; } = thumbprint;
 
         /// <summary>
         /// Certificate store where the certificate can be found
         /// </summary>
-        public string? Store { get; }
+        public string? Store { get; } = store;
 
         /// <summary>
         /// Hostname that should be set for the binding
         /// </summary>
-        public string Host { get; } = "";
+        public string Host { get; } = host;
 
         /// <summary>
         /// Optional: SiteId where new binding are supposed to be created
         /// </summary>
-        public long? SiteId { get; }
+        public long? SiteId { get; } = siteId;
 
         /// <summary>
         /// Optional: UpdateOnly flag to indicate that whether new bindings should be created
         /// </summary>
-        public bool UpdateOnly { get; } = IISClient.DefaultUpdateOnly;
+        public bool UpdateOnly { get; } = updateOnly;
 
         /// <summary>
         /// Binding string to use in IIS
@@ -80,37 +98,6 @@ namespace PKISharp.WACS.Clients.IIS
       
         public override string ToString() => Binding;
 
-        /// <summary>
-        /// Regular constructor
-        /// </summary>
-        /// <param name="flags"></param>
-        /// <param name="port"></param>
-        /// <param name="ip"></param>
-        /// <param name="thumbprint"></param>
-        /// <param name="store"></param>
-        /// <param name="host"></param>
-        /// <param name="siteId"></param>
-        /// <param name="updateOnly"></param>
-        public BindingOptions(
-            SSLFlags flags = SSLFlags.None,
-            int port = IISClient.DefaultBindingPort,
-            string ip = IISClient.DefaultBindingIp,
-            IEnumerable<byte>? thumbprint = null,
-            string? store = null,
-            string host = "",
-            long? siteId = null,
-            bool updateOnly = IISClient.DefaultUpdateOnly)
-        {
-            Flags = flags;
-            Port = port;
-            IP = ip;
-            Thumbprint = thumbprint;
-            Store = store;
-            Host = host;
-            SiteId = siteId;
-            UpdateOnly = updateOnly;
-        }
-
         public BindingOptions WithFlags(SSLFlags flags) => new(flags, Port, IP, Thumbprint, Store, Host, SiteId, UpdateOnly);
         public BindingOptions WithPort(int port) => new(Flags, port, IP, Thumbprint, Store, Host, SiteId, UpdateOnly);
         public BindingOptions WithIP(string ip) => new(Flags, Port, ip, Thumbprint, Store, Host, SiteId, UpdateOnly);
@@ -118,6 +105,6 @@ namespace PKISharp.WACS.Clients.IIS
         public BindingOptions WithStore(string? store) => new(Flags, Port, IP, Thumbprint, store, Host, SiteId, UpdateOnly);
         public BindingOptions WithHost(string hostName) => new(Flags, Port, IP, Thumbprint, Store, hostName, SiteId, UpdateOnly);
         public BindingOptions WithSiteId(long? siteId) => new(Flags, Port, IP, Thumbprint, Store, Host, siteId, UpdateOnly);
-        public BindingOptions WithUpdateOnly(bool updateOnly) => new(Flags, Port, IP, Thumbprint, Store, Host, SiteId, updateOnly);
+        public BindingOptions WithUpdateOnly(bool withUpdatesOnly) => new(Flags, Port, IP, Thumbprint, Store, Host, SiteId, withUpdatesOnly);
     }
 }

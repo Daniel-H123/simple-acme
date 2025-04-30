@@ -12,12 +12,8 @@ namespace PKISharp.WACS.Plugins.StorePlugins
     /// <summary>
     /// Based on Microsoft "FindPrivateKey" example
     /// </summary>
-    partial class FindPrivateKey
+    internal partial class FindPrivateKey(ILogService log)
     {
-        private readonly ILogService _log;
-
-        public FindPrivateKey(ILogService log) => _log = log;
-
         internal FileInfo? Find(X509Certificate2 cert)
         {
             string file;
@@ -28,7 +24,7 @@ namespace PKISharp.WACS.Plugins.StorePlugins
             }
             catch (Exception ex)
             {
-                _log.Warning("Unable to find private key file name: {ex}", ex.Message);
+                log.Warning(ex, "Unable to find private key file name");
                 return null;
             }
             try
@@ -37,13 +33,13 @@ namespace PKISharp.WACS.Plugins.StorePlugins
             }
             catch (Exception ex)
             {
-                _log.Warning("Unable to find private key folder: {ex}", ex.Message);
+                log.Warning(ex, "Unable to find private key folder");
                 return null;
             }
             return new FileInfo(Path.Combine(dir, file));
         }
 
-        static string GetKeyFileName(X509Certificate2 cert)
+        private static string GetKeyFileName(X509Certificate2 cert)
         {
             var ecdsa = cert.GetECDsaPrivateKey();
             if (ecdsa is ECDsaCng ecdsaCng && 
@@ -107,7 +103,7 @@ namespace PKISharp.WACS.Plugins.StorePlugins
             return keyFileName;
         }
 
-        static string GetKeyFileDirectory(string keyFileName)
+        private static string GetKeyFileDirectory(string keyFileName)
         {
             var common = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
             var foldersToCheck = new List<string>
@@ -139,7 +135,7 @@ namespace PKISharp.WACS.Plugins.StorePlugins
         private static partial bool CryptReleaseContext(IntPtr hProv, uint dwFlags);
     }
 
-    enum CryptGetProvParamType
+    internal enum CryptGetProvParamType
     {
         PP_ENUMALGS = 1,
         PP_ENUMCONTAINERS = 2,

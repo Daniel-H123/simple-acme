@@ -1,5 +1,4 @@
-﻿using PKISharp.WACS.Plugins.Base;
-using PKISharp.WACS.Plugins.Base.Options;
+﻿using PKISharp.WACS.Plugins.Base.Options;
 using PKISharp.WACS.Services;
 using PKISharp.WACS.Services.Serialization;
 
@@ -30,7 +29,7 @@ namespace PKISharp.WACS.Plugins.StorePlugins
         {
             base.Show(input);
             input.Show("Path", string.IsNullOrEmpty(Path) ? "[Default from settings.json]" : Path, level: 2); 
-            input.Show("Name", string.IsNullOrEmpty(PfxPassword?.Value) ? "[Default from settings.json]" : PfxPassword.DisplayValue, level: 2);
+            input.Show("FileName", string.IsNullOrEmpty(FileName) ? "[Default (common name)]" : FileName, level: 2);
             input.Show("Password", string.IsNullOrEmpty(PfxPassword?.Value) ? "[Default from settings.json]" : PfxPassword.DisplayValue, level: 2);
         }
     }

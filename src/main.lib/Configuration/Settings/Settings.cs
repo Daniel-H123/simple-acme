@@ -44,7 +44,7 @@ namespace PKISharp.WACS.Configuration.Settings
 
     public class ClientSettings
     {
-        public string ClientName { get; set; } = "win-acme";
+        public string ClientName { get; set; } = "simple-acme";
         public string ConfigurationPath { get; set; } = "";
         public string? LogPath { get; set; }
         public bool VersionCheck { get; set; }
@@ -120,7 +120,15 @@ namespace PKISharp.WACS.Configuration.Settings
         /// If there are alternate certificate, select 
         /// which issuer is preferred
         /// </summary>
-        public string? PreferredIssuer { get; set; }        
+        public string? PreferredIssuer { get; set; }
+        /// <summary>
+        /// Maximum number of domains supported
+        /// </summary>
+        public int? MaxDomains { get; set; }
+        /// <summary>
+        /// Location of the public suffix list
+        /// </summary>
+        public Uri? PublicSuffixListUri { get; set; }
     }
 
     /// <summary>
@@ -164,6 +172,7 @@ namespace PKISharp.WACS.Configuration.Settings
     public class SecretsSettings
     {
         public JsonSettings? Json { get; set; }
+        public ScriptSecretsSettings? Script { get; set; }
     }
 
     /// <summary>
@@ -172,6 +181,15 @@ namespace PKISharp.WACS.Configuration.Settings
     public class JsonSettings
     {
         public string? FilePath { get; set; }
+    }
+
+    /// <summary>
+    /// Settings for script secret store
+    /// </summary>
+    public class ScriptSecretsSettings
+    {
+        public string? Get { get; set; }
+        public string? GetArguments { get; set; }
     }
 
     public class CacheSettings
@@ -448,6 +466,15 @@ namespace PKISharp.WACS.Configuration.Settings
         /// </summary>
         public int PreValidateDnsRetryInterval { get; set; } = 30;
         /// <summary>
+        /// Add the local DNS server to the list of servers to query during prevalidation
+        /// </summary>
+        public bool? PreValidateDnsLocal { get; set; } = false;
+        /// <summary>
+        /// Amount of time to wait for DNS propagation to complete *after* (optional) PreValidation
+        /// step has been run.
+        /// </summary>
+        public int DnsPropagationDelay { get; set; } = 0;
+        /// <summary>
         /// If set to `true`, the program will attempt to recurively 
         /// follow CNAME records present on _acme-challenge subdomains to 
         /// find the final domain the DNS-01 challenge should be handled by.
@@ -576,6 +603,10 @@ namespace PKISharp.WACS.Configuration.Settings
         /// </summary>
         public PfxFileSettings PfxFile { get; set; } = new PfxFileSettings();
 
+        /// <summary>
+        /// Settings for the P7bFile plugin
+        /// </summary>
+        public P7bFileSettings P7bFile { get; set; } = new P7bFileSettings();
     }
 
     public class CertificateStoreSettings
@@ -675,6 +706,19 @@ namespace PKISharp.WACS.Configuration.Settings
         /// Legacy, SHA256 or Default
         /// </summary>
         public string? DefaultProtectionMode { get; set; }
+    }
+
+    public class P7bFileSettings
+    {
+        /// <summary>
+        /// When using --store p7bfile this path is used by default, saving 
+        /// you the effort from providing it manually. Filling this out makes 
+        /// the --p7bfilepath parameter unnecessary in most cases. Renewals 
+        /// created with the default path will automatically change to any 
+        /// future default value, meaning this is also a good practice for 
+        /// maintainability.
+        /// </summary>
+        public string? DefaultPath { get; set; }
     }
 
     public class InstallationSettings

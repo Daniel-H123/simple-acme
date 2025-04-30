@@ -1,5 +1,6 @@
 ﻿using PKISharp.WACS.Clients.IIS;
 using PKISharp.WACS.DomainObjects;
+using PKISharp.WACS.Extensions;
 using PKISharp.WACS.Plugins.Base.Capabilities;
 using PKISharp.WACS.Plugins.Interfaces;
 using PKISharp.WACS.Services.Serialization;
@@ -10,28 +11,26 @@ using System.Threading.Tasks;
 
 namespace PKISharp.WACS.Plugins.ValidationPlugins.Http
 {
-    [IPlugin.Plugin<
+    [IPlugin.Plugin1<
         FileSystemOptions, FileSystemOptionsFactory, 
-        HttpValidationCapability, WacsJsonPlugins>
+        HttpValidationCapability, WacsJsonPlugins, FileSystemArguments>
         ("1c77b3a4-5310-4c46-92c6-00d866e84d6b", 
-        "FileSystem", "Save verification files on (network) path")]
-    internal class FileSystem : HttpValidation<FileSystemOptions>
+        "Filesystem", "Save verification files on (network) path")]
+    internal class FileSystem(FileSystemOptions options, IIISClient iisClient, RunLevel runLevel, HttpValidationParameters pars) : HttpValidation<FileSystemOptions>(options, runLevel, pars)
     {
-        protected IIISClient _iisClient;
-
-        public FileSystem(FileSystemOptions options, IIISClient iisClient, RunLevel runLevel, HttpValidationParameters pars) : base(options, runLevel, pars) => _iisClient = iisClient;
+        protected IIISClient _iisClient = iisClient;
 
         protected override Task DeleteFile(string path)
         {
             var fi = new FileInfo(path);
             if (fi.Exists)
             {
-                _log.Verbose("Deleting file {path}", path);
+                log.Verbose("Deleting file {path}", path);
                 fi.Delete();
             }
             else
             {
-                _log.Warning("File {path} already deleted", path);
+                log.Warning("File {path} already deleted", path);
             }
             return Task.CompletedTask;
         }
@@ -41,12 +40,12 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Http
             var di = new DirectoryInfo(path);
             if (di.Exists)
             {
-                _log.Verbose("Deleting folder {path}", path);
+                log.Verbose("Deleting folder {path}", path);
                 di.Delete();
             }
             else
             {
-                _log.Warning("Folder {path} already deleted", path);
+                log.Warning("Folder {path} already deleted", path);
             }
             return Task.CompletedTask;
         }
@@ -64,8 +63,8 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Http
             {
                 fi.Directory.Create();
             }
-            _log.Verbose("Writing file to {path}", path);
-            await File.WriteAllTextAsync(path, content);
+            log.Verbose("Writing file to {path}", path);
+            await fi.SafeWrite(content);
         }
 
         /// <summary>
@@ -78,14 +77,9 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Http
             {
                 // Update web root path
                 var siteId = _options.SiteId ?? targetPart.SiteId;
-                if (siteId > 0)
-                {
-                    _path = _iisClient.GetSite(siteId.Value, IISSiteType.Web).Path;
-                }
-                else
-                {
+                _path = siteId > 0 ? 
+                    _iisClient.GetSite(siteId.Value, IISSiteType.Web).Path : 
                     throw new Exception("No path specified");
-                }
             }
             else
             {

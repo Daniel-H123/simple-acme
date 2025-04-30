@@ -5,53 +5,48 @@ using PKISharp.WACS.Plugins.ValidationPlugins.Dns;
 using PKISharp.WACS.Plugins.ValidationPlugins.DnsMadeEasy;
 using PKISharp.WACS.Services;
 using System;
-using System.Runtime.Versioning;
+using System.Net.Http;
 using System.Threading.Tasks;
-
-[assembly: SupportedOSPlatform("windows")]
 
 namespace PKISharp.WACS.Plugins.ValidationPlugins
 {
 
-    [IPlugin.Plugin<
+    [IPlugin.Plugin1<
         DnsMadeEasyOptions, DnsMadeEasyOptionsFactory,
-        DnsValidationCapability, DnsMadeEasyJson>
+        DnsValidationCapability, DnsMadeEasyJson, DnsMadeEasyArguments>
         ("13993334-2d74-4ff6-801b-833b99bf231d",
-        "DnsMadeEasy", "Create verification records in DnsMadeEasy DNS")]
-    internal class DnsMadeEasyDnsValidation : DnsValidation<DnsMadeEasyDnsValidation>
+        "DnsMadeEasy", "Create verification records in DnsMadeEasy DNS", 
+        Name = "DNS Made Easy", External = true, Provider = "DigiCert")]
+    internal class DnsMadeEasyDnsValidation(
+        LookupClientProvider dnsClient,
+        ILogService logService,
+        ISettingsService settings,
+        DomainParseService domainParser,
+        DnsMadeEasyOptions options,
+        SecretServiceManager ssm,
+        IProxyService proxyService) : DnsValidation<DnsMadeEasyDnsValidation, DnsManagementClient>(dnsClient, logService, settings, proxyService)
     {
-        private readonly DnsManagementClient _client;
-        private readonly DomainParseService _domainParser;
-
-        public DnsMadeEasyDnsValidation(
-            LookupClientProvider dnsClient,
-            ILogService logService,
-            ISettingsService settings,
-            DomainParseService domainParser,
-            DnsMadeEasyOptions options,
-            SecretServiceManager ssm,
-            IProxyService proxyService)
-            : base(dnsClient, logService, settings)
+        protected override async Task<DnsManagementClient> CreateClient(HttpClient client)
         {
-            _client = new DnsManagementClient(
-                ssm.EvaluateSecret(options.ApiKey) ?? "", 
-                ssm.EvaluateSecret(options.ApiSecret) ?? "", 
-                logService, proxyService);
-            _domainParser = domainParser;
+            return new(
+                await ssm.EvaluateSecret(options.ApiKey) ?? "",
+                await ssm.EvaluateSecret(options.ApiSecret) ?? "",
+                client);
         }
 
         public override async Task<bool> CreateRecord(DnsValidationRecord record)
         {
             try
             {
-                var domain = _domainParser.GetRegisterableDomain(record.Authority.Domain);
+                var client = await GetClient();
+                var domain = domainParser.GetRegisterableDomain(record.Authority.Domain);
                 var recordName = RelativeRecordName(domain, record.Authority.Domain);
-                await _client.CreateRecord(domain, recordName, RecordType.TXT, record.Value);
+                await client.CreateRecord(domain, recordName, RecordType.TXT, record.Value);
                 return true;
             }
             catch (Exception ex)
             {
-                _log.Warning($"Unable to create record at DnsMadeEasy: {ex.Message}");
+                _log.Warning(ex, $"Unable to create record at DnsMadeEasy");
                 return false;
             }
         }
@@ -60,13 +55,14 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins
         {
             try
             {
-                var domain = _domainParser.GetRegisterableDomain(record.Authority.Domain);
+                var client = await GetClient();
+                var domain = domainParser.GetRegisterableDomain(record.Authority.Domain);
                 var recordName = RelativeRecordName(domain, record.Authority.Domain);
-                await _client.DeleteRecord(domain, recordName, RecordType.TXT);
+                await client.DeleteRecord(domain, recordName, RecordType.TXT);
             }
             catch (Exception ex)
             {
-                _log.Warning($"Unable to delete record from DnsMadeEasy: {ex.Message}");
+                _log.Warning(ex, $"Unable to delete record from DnsMadeEasy");
             }
         }
     }

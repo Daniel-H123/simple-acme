@@ -5,47 +5,43 @@ using PKISharp.WACS.Plugins.ValidationPlugins.Dns.Models;
 using PKISharp.WACS.Services;
 using System;
 using System.Linq;
-using System.Runtime.Versioning;
+using System.Net.Http;
 using System.Threading.Tasks;
-
-[assembly: SupportedOSPlatform("windows")]
 
 namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
 {
-    [IPlugin.Plugin<
+    [IPlugin.Plugin1<
         HetznerOptions, HetznerOptionsFactory,
-        DnsValidationCapability, HetznerJson>
+        DnsValidationCapability, HetznerJson, HetznerArguments>
         ("7176cc8f-ba08-4b07-aa39-2f5d012c1d5a",
-        "Hetzner", "Create verification records in Hetzner DNS")]
-    public class Hetzner : DnsValidation<Hetzner>, IDisposable
+        "Hetzner", "Create verification records in Hetzner DNS",
+        External = true, JsonSchemaPublished = true)]
+    public class Hetzner(
+        HetznerOptions options,
+        IProxyService proxy,
+        LookupClientProvider dnsClient,
+        SecretServiceManager ssm,
+        ILogService logService,
+        ISettingsService settings) : DnsValidation<Hetzner, HetznerClient>(dnsClient, logService, settings, proxy)
     {
-        private readonly HetznerOptions _options;
-        private readonly HetznerClient _client;
-
-        public Hetzner(
-            HetznerOptions options,
-            IProxyService proxyService,
-            LookupClientProvider dnsClient,
-            SecretServiceManager ssm,
-            ILogService logService,
-            ISettingsService settings) : base(dnsClient, logService, settings)
+        protected override async Task<HetznerClient> CreateClient(HttpClient client)
         {
-            _client = new HetznerClient(ssm.EvaluateSecret(options.ApiToken) ?? throw new InvalidOperationException("API Token cannot be null"), logService, proxyService);
-            _options = options;
+            return new HetznerClient(client, await ssm.EvaluateSecret(options.ApiToken) ?? throw new InvalidOperationException("API Token cannot be null"), _log);
         }
 
         private async Task<Zone?> GetHostedZone(string recordName)
         {
-            if (String.IsNullOrWhiteSpace(_options.ZoneId) is false)
+            var client = await GetClient();
+            if (String.IsNullOrWhiteSpace(options.ZoneId) is false)
             {
                 _log.Debug("Using Zone Id specified by input arguments to get zone information.");
 
-                return await _client.GetZoneAsync(_options.ZoneId).ConfigureAwait(false);
+                return await client.GetZoneAsync(options.ZoneId).ConfigureAwait(false);
             }
 
             _log.Debug($"Try getting best matching zone for record '{recordName}'.");
 
-            var zones = await _client.GetAllZonesAsync().ConfigureAwait(false);
+            var zones = await client.GetAllZonesAsync().ConfigureAwait(false);
             if (zones.Count == 0)
             {
                 _log.Error("No zones could be found using the Hetzner DNS API. " +
@@ -80,8 +76,8 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
 
             var host = record.Authority.Domain.Replace($".{zone.Name}", null);
             var txtRecord = new Record("TXT", host, record.Value, zone.Id);
-
-            return await _client.CreateRecordAsync(txtRecord).ConfigureAwait(false);
+            var client = await GetClient();
+            return await client.CreateRecordAsync(txtRecord).ConfigureAwait(false);
         }
 
         public override async Task DeleteRecord(DnsValidationRecord record)
@@ -100,15 +96,13 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
 
                 var host = record.Authority.Domain.Replace($".{zone.Name}", null);
                 var txtRecord = new Record("TXT", host, record.Value, zone.Id);
-
-                await _client.DeleteRecordAsync(txtRecord).ConfigureAwait(false);
+                var client = await GetClient();
+                await client.DeleteRecordAsync(txtRecord).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                _log.Warning($"Unable to delete record from Hetzner DNS: {ex.Message}");
+                _log.Warning(ex, $"Unable to delete record from Hetzner DNS");
             }
         }
-
-        public void Dispose() => _client.Dispose();
     }
 }

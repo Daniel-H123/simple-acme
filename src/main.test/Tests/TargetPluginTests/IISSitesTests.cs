@@ -3,16 +3,16 @@ using PKISharp.WACS.Clients.IIS;
 using PKISharp.WACS.Configuration;
 using PKISharp.WACS.Configuration.Arguments;
 using PKISharp.WACS.DomainObjects;
-using PKISharp.WACS.Extensions;
 using PKISharp.WACS.Plugins.TargetPlugins;
 using PKISharp.WACS.Services;
 using PKISharp.WACS.UnitTests.Mock;
 using PKISharp.WACS.UnitTests.Mock.Services;
-using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.Versioning;
 
 namespace PKISharp.WACS.UnitTests.Tests.TargetPluginTests
 {
+    [SupportedOSPlatform("windows")]
     [TestClass]
     public class IISSitesTests
     {
@@ -20,8 +20,8 @@ namespace PKISharp.WACS.UnitTests.Tests.TargetPluginTests
         private readonly IIISClient iis;
         private readonly IISHelper helper;
         private readonly PluginService plugins;
-        private readonly IUserRoleService userRoleService;
         private readonly DomainParseService domainParse;
+        private readonly TargetValidator validator;
 
         public IISSitesTests()
         {
@@ -30,16 +30,16 @@ namespace PKISharp.WACS.UnitTests.Tests.TargetPluginTests
             var settings = new MockSettingsService();
             var proxy = new Mock.Services.ProxyService();
             domainParse = new DomainParseService(log, proxy, settings);
+            validator = new TargetValidator(log, settings);
             helper = new IISHelper(log, iis, domainParse);
             plugins = new PluginService(log, new MockAssemblyService(log));
-            userRoleService = new Services.UserRoleService(iis, new AdminService());
         }
 
         private IISOptions? Options(string commandLine)
         {
             var optionsParser = new ArgumentsParser(log, new MockAssemblyService(log), commandLine.Split(' '));
-            var input = new Mock.Services.InputService(new());
-            var secretService = new SecretServiceManager(new MockContainer().TestScope(), input, plugins, log);
+            var input = new Mock.Services.InputService([]);
+            var secretService = new SecretServiceManager(MockContainer.TestScope(), input, plugins, log);
             var argsInput = new ArgumentsInputService(log, optionsParser, input, secretService);
             var args = new MainArguments();
             var x = new IISOptionsFactory(log, helper, args, argsInput);
@@ -73,7 +73,7 @@ namespace PKISharp.WACS.UnitTests.Tests.TargetPluginTests
 
                     var target = Target(options);
                     Assert.IsNotNull(target);
-                    Assert.AreEqual(target.IsValid(log), true);
+                    Assert.AreEqual(validator.IsValid(target), true);
                     Assert.AreEqual(target.CommonName?.Value, siteA.Bindings.First().Host); // First binding
                     Assert.AreEqual(target.IIS, true);
                     Assert.AreEqual(target.Parts.Count, 2);
@@ -101,7 +101,7 @@ namespace PKISharp.WACS.UnitTests.Tests.TargetPluginTests
                 Assert.IsNull(options.ExcludeHosts);
                 var target = Target(options);
                 Assert.IsNotNull(target);
-                Assert.AreEqual(target.IsValid(log), true);
+                Assert.AreEqual(validator.IsValid(target), true);
                 Assert.AreEqual(target.CommonName?.Value, commonName);
             }
         }
@@ -118,8 +118,8 @@ namespace PKISharp.WACS.UnitTests.Tests.TargetPluginTests
                 Assert.AreEqual(options.CommonName, uniHost);
                 Assert.IsNull(options.ExcludeHosts);
                 var target = Target(options);
-                Assert.IsNotNull(target);
-                Assert.AreEqual(target.IsValid(log), true);
+                Assert.IsNotNull(target); 
+                Assert.AreEqual(validator.IsValid(target), true);
                 Assert.AreEqual(target.CommonName?.Value, uniHost);
             }
         }
@@ -136,8 +136,8 @@ namespace PKISharp.WACS.UnitTests.Tests.TargetPluginTests
                 Assert.IsNotNull(options.ExcludeHosts);
                 Assert.AreEqual(options.ExcludeHosts?.Count, 2);
                 var target = Target(options);
-                Assert.IsNotNull(target);
-                Assert.AreEqual(target.IsValid(log), true);
+                Assert.IsNotNull(target); 
+                Assert.AreEqual(validator.IsValid(target), true);
                 Assert.AreEqual(target.CommonName?.Value, siteA.Bindings.ElementAt(1).Host); // 2nd binding, first is excluded
             }
         }
@@ -167,10 +167,10 @@ namespace PKISharp.WACS.UnitTests.Tests.TargetPluginTests
         {
             var siteId = 1;
             var site = iis.GetSite(siteId);
-            var options = new IISSitesOptions() { SiteIds = new List<long>() { 1, 2 }, CommonName = "missing.example.com" };
+            var options = new IISSitesOptions() { SiteIds = [1, 2], CommonName = "missing.example.com" };
             var target = Target(options);
-            Assert.IsNotNull(target);
-            Assert.AreEqual(true, target.IsValid(log));
+            Assert.IsNotNull(target); 
+            Assert.AreEqual(validator.IsValid(target), true);
             Assert.AreEqual(site.Bindings.First().Host, target.CommonName?.Value);
         }
 
@@ -186,7 +186,7 @@ namespace PKISharp.WACS.UnitTests.Tests.TargetPluginTests
         {
             var options = new IISSitesOptions()
             {
-                SiteIds = new List<long>() { 1, 999 }
+                SiteIds = [1, 999]
             };
             var target = Target(options);
             Assert.IsNotNull(target);

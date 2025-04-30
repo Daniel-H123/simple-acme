@@ -5,52 +5,47 @@ using PKISharp.WACS.Plugins.ValidationPlugins.Dns;
 using PKISharp.WACS.Plugins.ValidationPlugins.Godaddy;
 using PKISharp.WACS.Services;
 using System;
-using System.Runtime.Versioning;
+using System.Net.Http;
 using System.Threading.Tasks;
-
-[assembly: SupportedOSPlatform("windows")]
 
 namespace PKISharp.WACS.Plugins.ValidationPlugins
 {
-    [IPlugin.Plugin<
+    [IPlugin.Plugin1<
         GodaddyOptions, GodaddyOptionsFactory, 
-        DnsValidationCapability, GodaddyJson>
+        DnsValidationCapability, GodaddyJson, GodaddyArguments>
         ("966c4c3d-1572-44c7-9134-5e2bc8fa021d", 
-        "Godaddy", "Create verification records in Godaddy DNS")]
-    internal class GodaddyDnsValidation : DnsValidation<GodaddyDnsValidation>
+        "GoDaddy", "Create verification records in GoDaddy DNS",
+        External = true)]
+    internal class GodaddyDnsValidation(
+        LookupClientProvider dnsClient,
+        ILogService logService,
+        ISettingsService settings,
+        DomainParseService domainParser,
+        GodaddyOptions options,
+        SecretServiceManager ssm,
+        IProxyService proxyService) : DnsValidation<GodaddyDnsValidation, DnsManagementClient>(dnsClient, logService, settings, proxyService)
     {
-        private readonly DnsManagementClient _client;
-        private readonly DomainParseService _domainParser;
-
-        public GodaddyDnsValidation(
-            LookupClientProvider dnsClient,
-            ILogService logService,
-            ISettingsService settings,
-            DomainParseService domainParser,
-            GodaddyOptions options,
-            SecretServiceManager ssm,
-            IProxyService proxyService)
-            : base(dnsClient, logService, settings)
+        protected override async Task<DnsManagementClient> CreateClient(HttpClient httpClient)
         {
-            _client = new DnsManagementClient(
-                ssm.EvaluateSecret(options.ApiKey) ?? "", 
-                ssm.EvaluateSecret(options.ApiSecret) ?? "", 
-                logService, proxyService);
-            _domainParser = domainParser;
+            return new(
+                await ssm.EvaluateSecret(options.ApiKey) ?? "",
+                await ssm.EvaluateSecret(options.ApiSecret) ?? "",
+                httpClient);
         }
 
         public override async Task<bool> CreateRecord(DnsValidationRecord record)
         {
             try
             {
-                var domain = _domainParser.GetRegisterableDomain(record.Authority.Domain);
+                var domain = domainParser.GetRegisterableDomain(record.Authority.Domain);
                 var recordName = RelativeRecordName(domain, record.Authority.Domain);
-                await _client.CreateRecord(domain, recordName, RecordType.TXT, record.Value);
+                var client = await GetClient();
+                await client.CreateRecord(domain, recordName, RecordType.TXT, record.Value);
                 return true;
             }
             catch (Exception ex)
             {
-                _log.Warning($"Unable to create record at Godaddy: {ex.Message}");
+                _log.Warning(ex, $"Unable to create record at Godaddy");
                 return false;
             }
         }
@@ -59,13 +54,14 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins
         {
             try
             {
-                var domain = _domainParser.GetRegisterableDomain(record.Authority.Domain);
+                var domain = domainParser.GetRegisterableDomain(record.Authority.Domain);
                 var recordName = RelativeRecordName(domain, record.Authority.Domain);
-                await _client.DeleteRecord(domain, recordName, RecordType.TXT);
+                var client = await GetClient();
+                await client.DeleteRecord(domain, recordName, RecordType.TXT);
             }
             catch (Exception ex)
             {
-                _log.Warning($"Unable to delete record from Godaddy: {ex.Message}");
+                _log.Warning(ex, $"Unable to delete record from Godaddy");
             }
         }
     }

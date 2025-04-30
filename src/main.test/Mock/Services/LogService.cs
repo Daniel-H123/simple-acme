@@ -1,4 +1,6 @@
-﻿using PKISharp.WACS.Services;
+﻿using ACMESharp;
+using PKISharp.WACS.Configuration.Settings;
+using PKISharp.WACS.Services;
 using Serilog;
 using Serilog.Core;
 using System;
@@ -7,10 +9,13 @@ using System.Collections.Generic;
 
 namespace PKISharp.WACS.UnitTests.Mock.Services
 {
-    internal class LogService : ILogService
+    internal class LogService(bool throwErrors) : ILogService, IAcmeLogger
     {
-        private readonly Logger _logger;
-        private readonly bool _throwErrors;
+        private readonly Logger _logger = new LoggerConfiguration()
+                .MinimumLevel.Verbose()
+                .WriteTo.Console(outputTemplate: " [{Level:u4}] {Message:l}{NewLine}{Exception}")
+                .CreateLogger();
+
         public ConcurrentQueue<string> DebugMessages { get; } = new ConcurrentQueue<string>();
         public ConcurrentQueue<string> WarningMessages { get; } = new ConcurrentQueue<string>();
         public ConcurrentQueue<string> InfoMessages { get; } = new ConcurrentQueue<string>();
@@ -19,29 +24,20 @@ namespace PKISharp.WACS.UnitTests.Mock.Services
 
         public LogService() : this(false) {}
 
-        public LogService(bool throwErrors)
-        {
-            _throwErrors = throwErrors;
-            _logger = new LoggerConfiguration()
-                .MinimumLevel.Verbose()
-                .WriteTo.Console(outputTemplate: " [{Level:u4}] {Message:l}{NewLine}{Exception}")
-                .CreateLogger();
-        }
-
         public bool Dirty { get; set; }
 
-        public IEnumerable<MemoryEntry> Lines => new List<MemoryEntry>();
+        public IEnumerable<MemoryEntry> Lines => [];
 
         public void Debug(string message, params object?[] items)
         {
             DebugMessages.Enqueue(message);
             _logger.Debug(message, items);
         }
-        public void Error(Exception ex, string message, params object?[] items)
+        public void Error(Exception? ex, string message, params object?[] items)
         {
             ErrorMessages.Enqueue(message);
             _logger.Error(ex, message, items);
-            if (_throwErrors)
+            if (throwErrors && ex != null)
             {
                 throw ex;
             }
@@ -50,7 +46,7 @@ namespace PKISharp.WACS.UnitTests.Mock.Services
         {
             ErrorMessages.Enqueue(message);
             _logger.Error(message, items);
-            if (_throwErrors)
+            if (throwErrors)
             {
                 throw new Exception(message);
             }
@@ -64,14 +60,12 @@ namespace PKISharp.WACS.UnitTests.Mock.Services
 
         public void Information(string message, params object?[] items) => Information(LogType.All, message, items);
 
-        public void SetVerbose() { }
-
         public void Verbose(string message, params object?[] items)
         {
             VerboseMessages.Enqueue(message);
             _logger.Verbose(message, items);
         }
-        public void Verbose(LogType logType, string message, params object?[] items)
+        public void Verbose(LogType _, string message, params object?[] items)
         {
             VerboseMessages.Enqueue(message);
             _logger.Verbose(message, items);
@@ -84,6 +78,12 @@ namespace PKISharp.WACS.UnitTests.Mock.Services
 
         public void Reset() { }
 
-        public void SetDiskLoggingPath(string logPath) {}
+        public void ApplyClientSettings(ClientSettings logPath) {}
+
+        public void Warning(Exception? ex, string message, params object?[] items)
+        {
+            WarningMessages.Enqueue(message);
+            _logger.Warning(ex, message, items);
+        }
     }
 }

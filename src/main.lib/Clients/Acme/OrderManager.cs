@@ -17,22 +17,13 @@ namespace PKISharp.WACS.Clients.Acme
     /// <summary>
     /// The OrderManager makes sure that we don't hit rate limits
     /// </summary>
-    class OrderManager
+    internal class OrderManager(ILogService log, ISettingsService settings)
     {
-        private readonly ILogService _log;
-        private readonly ISettingsService _settings;
-        private readonly DirectoryInfo _orderPath;
+        private readonly DirectoryInfo _orderPath = settings.Valid ?
+                new DirectoryInfo(Path.Combine(settings.Client.ConfigurationPath, "Orders")) :
+                new DirectoryInfo(Directory.GetCurrentDirectory());
         private const string _orderFileExtension = "order.json";
         private const string _orderKeyExtension = "order.keys";
-
-        public OrderManager(ILogService log, ISettingsService settings)
-        {
-            _log = log;
-            _settings = settings;
-            _orderPath = settings.Valid ? 
-                new DirectoryInfo(Path.Combine(settings.Client.ConfigurationPath, "Orders")) : 
-                new DirectoryInfo(Directory.GetCurrentDirectory());
-        }
 
         /// <summary>
         /// To check if it's possible to reuse a previously retrieved
@@ -71,7 +62,7 @@ namespace PKISharp.WACS.Clients.Acme
         public async Task<AcmeOrderDetails?> GetOrCreate(Order order, AcmeClient client, ICertificateInfo? replaces, RunLevel runLevel)
         {
             var cacheKey = CacheKey(order, client.Account.Details.Kid);
-            if (_settings.Cache.ReuseDays > 0)
+            if (settings.Cache.ReuseDays > 0)
             {
                 // Above conditional not only prevents us from reading a cached
                 // order from disk, but also prevent the "KeyPath" property from
@@ -87,15 +78,15 @@ namespace PKISharp.WACS.Clients.Acme
                     var keyFile = new FileInfo(order.KeyPath);
                     if (keyFile.Exists)
                     {
-                        _log.Warning("Using cache. To force a new order within {days} days, " +
+                        log.Warning("Using cache. To force a new order within {days} days, " +
                               "run with --{switch}. Beware that you might run into rate limits.",
-                              _settings.Cache.ReuseDays,
+                              settings.Cache.ReuseDays,
                               nameof(MainArguments.NoCache).ToLower());
                         return orderDetails;
                     }
                     else
                     {
-                        _log.Debug("Cached order available but not used.");
+                        log.Debug("Cached order available but not used.");
                     }
                 }
             }
@@ -122,7 +113,7 @@ namespace PKISharp.WACS.Clients.Acme
             if (fileInfo.Exists)
             {
                 fileInfo.Delete();
-                _log.Debug("Deleted {fileInfo}", fileInfo.FullName);
+                log.Debug("Deleted {fileInfo}", fileInfo.FullName);
             }
         }
 
@@ -137,7 +128,7 @@ namespace PKISharp.WACS.Clients.Acme
             var existingOrder = FindRecentOrder(cacheKey);
             if (existingOrder == null)
             {
-                _log.Verbose("No existing order found");
+                log.Verbose("No existing order found");
                 return null;
             }
 
@@ -146,7 +137,7 @@ namespace PKISharp.WACS.Clients.Acme
                 // Delete previously cached order
                 // and previously cached key as well
                 // to ensure that it won't be used
-                _log.Warning("Cached order available but not used with --{switch} option.",
+                log.Warning("Cached order available but not used with --{switch} option.",
                     nameof(MainArguments.NoCache).ToLower());
                 if (existingOrder.Payload.Authorizations != null)
                 {
@@ -154,12 +145,12 @@ namespace PKISharp.WACS.Clients.Acme
                     {
                         try
                         {
-                            _log.Debug("Deactivating pre-existing authorization");
+                            log.Debug("Deactivating pre-existing authorization");
                             await client.DeactivateAuthorization(auth);
                         }
                         catch (Exception ex)
                         {
-                            _log.Warning("Error deactivating pre-existing authorization: {ex}", ex.Message); ;
+                            log.Warning(ex, "Error deactivating pre-existing authorization");
                         }
                     }
                 }
@@ -170,12 +161,12 @@ namespace PKISharp.WACS.Clients.Acme
 
             try
             {
-                _log.Debug("Refreshing cached order");
+                log.Debug("Refreshing cached order");
                 existingOrder = await RefreshOrder(existingOrder, client);
             }
             catch (Exception ex)
             {
-                _log.Warning("Unable to refresh cached order: {ex}", ex.Message);
+                log.Warning(ex, "Unable to refresh cached order");
                 DeleteFromCache(cacheKey);
                 return null;
             }
@@ -183,7 +174,7 @@ namespace PKISharp.WACS.Clients.Acme
             if (existingOrder.Payload.Status != AcmeClient.OrderValid &&
                 existingOrder.Payload.Status != AcmeClient.OrderReady)
             {
-                _log.Warning("Cached order has status {status}, discarding", existingOrder.Payload.Status);
+                log.Warning("Cached order has status {status}, discarding", existingOrder.Payload.Status);
                 DeleteFromCache(cacheKey);
                 return null;
             }
@@ -200,7 +191,7 @@ namespace PKISharp.WACS.Clients.Acme
         /// <returns></returns>
         private async Task<AcmeOrderDetails> RefreshOrder(AcmeOrderDetails order, AcmeClient client)
         {
-            _log.Debug("Refreshing order...");
+            log.Debug("Refreshing order...");
             if (order.OrderUrl == null) 
             {
                 throw new InvalidOperationException("Missing order url");
@@ -228,7 +219,7 @@ namespace PKISharp.WACS.Clients.Acme
                 // Determine notAfter value (unsupported by Let's
                 // Encrypt at this time, but should work at Sectigo
                 // and possibly others
-                var validDays = _settings.Order.DefaultValidDays;
+                var validDays = settings.Order.DefaultValidDays;
                 // Certificates use UTC 
                 var now = DateTime.UtcNow; 
                 // We don't want milliseconds/ticks
@@ -245,9 +236,18 @@ namespace PKISharp.WACS.Clients.Acme
                 }
                 catch (AcmeProtocolException ex)
                 {
-                    if (previous != null && ex.ProblemType == ProblemType.Conflict)
+                    if (previous != null)
                     {
-                        _log.Warning("This order has already been replaced, possibly due to multiple renewals generating the same certificate. You may use the Renewal Manager to scan for duplicates.");
+                        if (ex.ProblemType == ProblemType.AlreadyReplaced || 
+                            ex.ProblemType == ProblemType.Conflict)
+                        {
+                            log.Warning(ex, "This order has already been replaced. You may use the Renewal Manager to check for previous errors or duplicates.");
+                        }
+                        else
+                        {
+                            log.Warning(ex, "This order failed, possibly due to the server not properly processing information about the previous certificate.");
+                        }
+                        log.Information("Retrying without providing the server with replacement info...");
                         order = await client.CreateOrder(identifiers, null, notAfter);
                     }
                     else
@@ -258,21 +258,21 @@ namespace PKISharp.WACS.Clients.Acme
 
                 if (order.Payload.Error != default)
                 {
-                    _log.Error("Failed to create order {url}: {detail}", order.OrderUrl, order.Payload.Error.Detail);
+                    log.Error("Failed to create order {url}: {detail}", order.OrderUrl, order.Payload.Error.Detail);
                     return null;
                 }
                 
-                _log.Verbose("Order {url} created", order.OrderUrl);
+                log.Verbose("Order {url} created", order.OrderUrl);
                 await SaveOrder(order, cacheKey);
                 return order;
             } 
             catch (AcmeProtocolException ex)
             {
-                _log.Error($"Failed to create order: {ex.ProblemDetail ?? ex.Message}");
+                log.Error($"Failed to create order: {ex.ProblemDetail ?? ex.Message}");
             }
             catch (Exception ex)
             {
-                _log.Error(ex, $"Failed to create order");
+                log.Error(ex, $"Failed to create order");
             }
             return null;
         }
@@ -299,7 +299,7 @@ namespace PKISharp.WACS.Clients.Acme
             } 
             catch (Exception ex)
             {
-                _log.Warning("Unable to read order cache: {ex}", ex.Message);
+                log.Warning(ex, "Unable to read order cache");
             }
             return null;
         }
@@ -325,7 +325,7 @@ namespace PKISharp.WACS.Clients.Acme
                         }
                         catch (Exception ex)
                         {
-                            _log.Debug("Unable to clean up order cache: {ex}", ex.Message);
+                            log.Debug("Unable to clean up order cache: {ex}", ex.Message);
                         }
                     }
                 }
@@ -336,7 +336,7 @@ namespace PKISharp.WACS.Clients.Acme
         /// Test if a cached order file is still usable
         /// </summary>
         /// <returns></returns>
-        private bool IsValid(FileInfo order) => order.LastWriteTime > DateTime.Now.AddDays(_settings.Cache.ReuseDays * -1);
+        private bool IsValid(FileInfo order) => order.LastWriteTime > DateTime.Now.AddDays(settings.Cache.ReuseDays * -1);
 
         /// <summary>
         /// Save order to disk
@@ -346,7 +346,7 @@ namespace PKISharp.WACS.Clients.Acme
         {
             try
             {
-                if (_settings.Cache.ReuseDays <= 0)
+                if (settings.Cache.ReuseDays <= 0)
                 {
                     return;
                 }
@@ -356,24 +356,24 @@ namespace PKISharp.WACS.Clients.Acme
                 }
                 var content = JsonSerializer.Serialize(order, AcmeClientJson.Default.AcmeOrderDetails);
                 var path = Path.Combine(_orderPath.FullName, $"{cacheKey}.{_orderFileExtension}");
-                await File.WriteAllTextAsync(path, content);
+                await FileInfoExtensions.SafeWrite(path, content);
             }
             catch (Exception ex)
             {
-                _log.Warning("Unable to write to order cache: {ex}", ex.Message);
+                log.Warning(ex, "Unable to write to order cache");
             }
         }
 
         /// <summary>
         /// Encrypt or decrypt the cached private keys
         /// </summary>
-        public void Encrypt()
+        public async Task Encrypt()
         {
             foreach (var f in _orderPath.EnumerateFiles($"*.{_orderKeyExtension}"))
             {
-                var x = new ProtectedString(File.ReadAllText(f.FullName), _log);
-                _log.Information("Rewriting {x}", f.Name);
-                File.WriteAllText(f.FullName, x.DiskValue(_settings.Security.EncryptConfig));
+                var x = new ProtectedString(File.ReadAllText(f.FullName), log);
+                log.Information("Rewriting {x}", f.Name);
+                await f.SafeWrite(x.DiskValue(settings.Security.EncryptConfig));
             }
         }
 

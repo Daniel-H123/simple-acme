@@ -1,4 +1,6 @@
-﻿using Microsoft.Extensions.Configuration;
+﻿using ACMESharp;
+using Microsoft.Extensions.Configuration;
+using PKISharp.WACS.Configuration.Settings;
 using Serilog;
 using Serilog.Core;
 using Serilog.Events;
@@ -6,29 +8,35 @@ using Serilog.Settings.Configuration;
 using Serilog.Sinks.SystemConsole.Themes;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 
 namespace PKISharp.WACS.Services
 {
-    public class LogService : ILogService
+    public class LogService : ILogService, IAcmeLogger
     {
         private readonly Logger? _screenLogger;
         private readonly Logger? _debugScreenLogger;
-        private readonly Logger? _eventLogger;
+        private Logger? _eventLogger;
         private Logger? _diskLogger;
+
         private readonly Logger? _notificationLogger;
         private readonly LoggingLevelSwitch _levelSwitch;
-        private readonly List<MemoryEntry> _lines = new();
 
         public bool Dirty { get; set; }
         private string ConfigurationPath { get; }
 
+        // Logging for notification emails
+        private readonly List<MemoryEntry> _lines = [];
         public IEnumerable<MemoryEntry> Lines => _lines.AsEnumerable();
         public void Reset() => _lines.Clear();
 
-        public LogService(bool verbose)
+        // Logging before the disk/event log configuration is available
+        private List<LogEntry>? _logs = [];
+
+        public LogService(bool verbose, bool config)
         {
             // Custom configuration support
             ConfigurationPath = Path.Combine(VersionService.BasePath, "serilog.json");
@@ -41,12 +49,15 @@ namespace PKISharp.WACS.Services
             {
                 initialLevel = LogEventLevel.Verbose;
             }
+            if (config)
+            {
+                initialLevel = LogEventLevel.Fatal;
+            }
             _levelSwitch = new LoggingLevelSwitch(initialMinimumLevel: initialLevel);
             try
             {
                 var theme = 
-                    RuntimeInformation.IsOSPlatform(OSPlatform.Windows) &&
-                    Environment.OSVersion.Version.Major == 10 ? 
+                    OperatingSystem.IsWindowsVersionAtLeast(10) || !OperatingSystem.IsWindows() ?
                     (ConsoleTheme)AnsiConsoleTheme.Code : 
                     SystemConsoleTheme.Literate;
 
@@ -76,24 +87,6 @@ namespace PKISharp.WACS.Services
                 Environment.Exit(ex.HResult);
             }
 
-            try
-            {
-                var _eventConfig = new ConfigurationBuilder()
-                   .AddJsonFile(ConfigurationPath, true, true)
-                   .Build();
-
-                _eventLogger = new LoggerConfiguration()
-                    .MinimumLevel.ControlledBy(_levelSwitch)
-                    .Enrich.FromLogContext()
-                    .WriteTo.EventLog("win-acme", manageEventSource: true)
-                    .ReadFrom.Configuration(_eventConfig, new ConfigurationReaderOptions(typeof(LogService).Assembly) { SectionName = "event" })
-                    .CreateLogger();
-            }
-            catch (Exception ex)
-            {
-                Warning("Error creating event logger: {ex}", ex.Message);
-            }
-
             _notificationLogger = new LoggerConfiguration()
                 .MinimumLevel.ControlledBy(_levelSwitch)
                 .Enrich.FromLogContext()
@@ -103,11 +96,43 @@ namespace PKISharp.WACS.Services
             Debug("Logging at level {initialLevel}", initialLevel);
         }
 
-        public void SetDiskLoggingPath(string path)
+        /// <summary>
+        /// The disk and event loggers are created after construction 
+        /// of the LogService when the ClientSettings are loaded. 
+        /// Before that all happens we can only log to the screen.
+        /// </summary>
+        /// <param name="settings"></param>
+        public void ApplyClientSettings(ClientSettings settings)
+        {
+            CreateDiskLogger(settings.LogPath ?? settings.ConfigurationPath);
+            if (OperatingSystem.IsWindows())
+            {
+                CreateEventLogger(settings.ClientName ?? "simple-acme");
+            }
+            if (_logs != null)
+            {
+                var logs = _logs.AsReadOnly();
+                _logs = null;
+                Information(LogType.Disk, "---------------------------------------------");
+                Information(LogType.Disk, "---- LOG STARTS -----------------------------");
+                Information(LogType.Disk, "---------------------------------------------");
+                foreach (var log in logs)
+                {
+                    Write(log);
+                }
+            }     
+        }
+
+        /// <summary>
+        /// Set up the disk logger
+        /// </summary>
+        /// <param name="logPath"></param>
+        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Primitive type (string) used")]
+        private void CreateDiskLogger(string logPath)
         {
             try
             {
-                var defaultPath = path.TrimEnd('\\', '/') + "\\log-.txt";
+                var defaultPath = Path.Combine(logPath.TrimEnd('\\', '/'), "log-.txt");
                 var defaultRollingInterval = RollingInterval.Day;
                 var defaultRetainedFileCountLimit = 120;
                 var fileConfig = new ConfigurationBuilder()
@@ -137,75 +162,148 @@ namespace PKISharp.WACS.Services
                 }
 
                 _diskLogger = new LoggerConfiguration()
-                    .MinimumLevel.Verbose()
+                     .MinimumLevel.Verbose()
+                     .Enrich.FromLogContext()
+                     .Enrich.WithProperty("ProcessId", Environment.ProcessId)
+                     .WriteTo.File(
+                         defaultPath,
+                         rollingInterval: defaultRollingInterval,
+                         retainedFileCountLimit: defaultRetainedFileCountLimit,
+                         outputTemplate: " {Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u4}] {Message:l}{NewLine} {Exception}")
+                     .ReadFrom.Configuration(fileConfig, new ConfigurationReaderOptions(typeof(LogService).Assembly) { SectionName = "disk" })
+                     .CreateLogger();
+            }
+            catch (Exception ex)
+            {
+                Warning(ex, "Error creating disk logger");
+            }
+        }
+
+        /// <summary>
+        /// Set up the Windows Event Viewer logger
+        /// </summary>
+        /// <param name="source"></param>
+        [SupportedOSPlatform("windows")]
+        private void CreateEventLogger(string source)
+        {
+            try
+            {
+                var _eventConfig = new ConfigurationBuilder()
+                    .AddJsonFile(ConfigurationPath, true, true)
+                    .Build();
+
+                _eventLogger = new LoggerConfiguration()
+                    .MinimumLevel.ControlledBy(_levelSwitch)
                     .Enrich.FromLogContext()
-                    .Enrich.WithProperty("ProcessId", Environment.ProcessId)
-                    .WriteTo.File(
-                        defaultPath, 
-                        rollingInterval: defaultRollingInterval,
-                        retainedFileCountLimit: defaultRetainedFileCountLimit)
-                    .ReadFrom.Configuration(fileConfig, new ConfigurationReaderOptions(typeof(LogService).Assembly) { SectionName = "disk" })
+                    .WriteTo.EventLog(source, manageEventSource: true)
+                    .ReadFrom.Configuration(_eventConfig, new ConfigurationReaderOptions(typeof(LogService).Assembly) { SectionName = "event" })
                     .CreateLogger();
             }
             catch (Exception ex)
             {
-                Warning("Error creating disk logger: {ex}", ex.Message);
+                Warning(ex, "Error creating event logger");
             }
         }
 
-        public void Verbose(string message, params object?[] items) => Verbose(LogType.Screen | LogType.Disk, message, items);
+        public void Verbose(string message, params object?[] items) => 
+            Write(new LogEntry() { 
+                type = LogType.Screen | LogType.Disk, 
+                level = LogEventLevel.Verbose, 
+                message = message, 
+                items = items 
+            });
 
-        public void Debug(string message, params object?[] items) => Debug(LogType.Screen | LogType.Disk, message, items);
+        public void Debug(string message, params object?[] items) =>
+            Write(new LogEntry() {
+                type = LogType.Screen | LogType.Disk,
+                level = LogEventLevel.Debug,
+                message = message,
+                items = items
+            });
 
-        public void Warning(string message, params object?[] items) => Warning(LogType.All, message, items);
+        public void Information(string message, params object?[] items) =>
+            Information(LogType.Screen | LogType.Disk, message, items);
 
-        public void Error(string message, params object?[] items) => Error(LogType.All, message, items);
+        public void Information(LogType logType, string message, params object?[] items) =>
+            Write(new LogEntry() {
+                type = logType,
+                level = LogEventLevel.Information,
+                message = message,
+                items = items
+            });
 
-        public void Error(Exception ex, string message, params object?[] items) => Error(LogType.All, ex, message, items);
+        public void Warning(string message, params object?[] items) =>
+            Warning(null, message, items);
 
-        public void Information(string message, params object?[] items) => Information(LogType.Screen | LogType.Disk, message, items);
+        public void Warning(Exception? ex, string message, params object?[] items) => 
+            Write(new LogEntry(){
+                type = LogType.All,
+                level = LogEventLevel.Warning,
+                message = message,
+                items = items,
+                ex = ex
+            });
 
-        public void Information(LogType logType, string message, params object?[] items) => _Information(logType, message, items);
+        public void Error(string message, params object?[] items) =>
+            Error(null, message, items);
 
-        public void Verbose(LogType type, string message, params object?[] items) => Write(type, LogEventLevel.Verbose, message, items);
+        public void Error(Exception? ex, string message, params object?[] items) => 
+            Write(new LogEntry() {
+                type = LogType.All,
+                level = LogEventLevel.Error,
+                message = message,
+                items = items,
+                ex = ex
+            });
 
-        private void Debug(LogType type, string message, params object?[] items) => Write(type, LogEventLevel.Debug, message, items);
 
-        private void _Information(LogType type, string message, params object?[] items) => Write(type, LogEventLevel.Information, message, items);
-
-        private void Warning(LogType type, string message, params object?[] items) => Write(type, LogEventLevel.Warning, message, items);
-
-        private void Error(LogType type, string message, params object?[] items) => Write(type, LogEventLevel.Error, message, items);
-
-        private void Error(LogType type, Exception ex, string message, params object?[] items) => Write(type, LogEventLevel.Error, ex, message, items);
-
-        private void Write(LogType type, LogEventLevel level, string message, params object?[] items) => Write(type, level, null, message, items);
-
-        private void Write(LogType type, LogEventLevel level, Exception? ex, string message, params object?[] items)
+        /// <summary>
+        /// Handle writes to different syncs
+        /// </summary>
+        /// <param name="entry"></param>
+        private void Write(LogEntry entry)
         {
-            if (type.HasFlag(LogType.Screen))
+            if (entry.type.HasFlag(LogType.Screen))
             {
                 if (_screenLogger != null && _levelSwitch.MinimumLevel >= LogEventLevel.Information)
                 {
-                    _screenLogger.Write(level, ex, message, items);
+                    _screenLogger.Write(entry.level, entry.ex, entry.message, entry.items);
                 }
-                else if (_debugScreenLogger != null)
+                else
                 {
-                    _debugScreenLogger.Write(level, ex, message, items);
+                    _debugScreenLogger?.Write(entry.level, entry.ex, entry.message, entry.items);
                 }
-                if (_notificationLogger != null)
-                {
-                    _notificationLogger.Write(level, ex, message, items);
-                }
+                _notificationLogger?.Write(entry.level, entry.ex, entry.message, entry.items);
             }
-            if (_eventLogger != null && type.HasFlag(LogType.Event))
+            if (_eventLogger != null && entry.type.HasFlag(LogType.Event))
             {
-                _eventLogger.Write(level, ex, message, items);
-            }
-            if (_diskLogger != null && type.HasFlag(LogType.Disk))
+                _eventLogger.Write(entry.level, entry.ex, entry.message, entry.items);
+            } 
+            if (_diskLogger != null && entry.type.HasFlag(LogType.Disk))
             {
-                _diskLogger.Write(level, ex, message, items);
+                _diskLogger.Write(entry.level, entry.ex, entry.message, entry.items);
             }
+
+            // Save for relogging after disk/event log become available, but do not print to screen again
+            _logs?.Add(new LogEntry() { 
+                type = entry.type ^ LogType.Screen, 
+                level = entry.level, 
+                ex = entry.ex, 
+                message = entry.message, 
+                items = entry.items 
+            });
+        }
+
+        /// <summary>
+        /// Single log entry
+        /// </summary>
+        private record LogEntry
+        {
+            public LogType type;
+            public LogEventLevel level;
+            public Exception? ex;
+            public required string message;
+            public required object?[] items;
         }
 
     }

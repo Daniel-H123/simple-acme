@@ -1,4 +1,5 @@
-﻿using Autofac;
+﻿using ACMESharp;
+using Autofac;
 using Autofac.Core;
 using Autofac.Features.AttributeFilters;
 using PKISharp.WACS.Clients;
@@ -9,33 +10,33 @@ using PKISharp.WACS.Configuration;
 using PKISharp.WACS.Configuration.Arguments;
 using PKISharp.WACS.Plugins.NotificationPlugins;
 using PKISharp.WACS.Plugins.Resolvers;
-using PKISharp.WACS.Plugins.ValidationPlugins.Http;
-using PKISharp.WACS.Services.Interfaces;
 using PKISharp.WACS.Services.Serialization;
 using PKISharp.WACS.UnitTests.Mock.Services;
+using System;
 using System.Collections.Generic;
 using Real = PKISharp.WACS.Services;
 
 namespace PKISharp.WACS.UnitTests.Mock
 {
-    class MockContainer
+    internal class MockContainer
     {
-        public ILifetimeScope TestScope(List<string>? inputSequence = null, string commandLine = "")
+        public static ILifetimeScope TestScope(List<string>? inputSequence = null, string commandLine = "")
         {
             var log = new LogService(false);
             var assemblyService = new MockAssemblyService(log);
             var pluginService = new Real.PluginService(log, assemblyService);
             var argumentsParser = new ArgumentsParser(log, assemblyService, commandLine.Split(' '));
-            var input = new InputService(inputSequence ?? new List<string>());
+            var input = new InputService(inputSequence ?? []);
 
             var builder = new ContainerBuilder();
-            _ = builder.RegisterType<Real.SecretServiceManager>();
+            _ = builder.RegisterType<Real.SecretServiceManager>().SingleInstance();
             _ = builder.RegisterType<SecretService>().As<SecretService>().As<Real.ISecretService>().SingleInstance();
             _ = builder.RegisterType<AccountManager>();
             _ = builder.RegisterType<OrderManager>();
+            _ = builder.RegisterType<Real.TargetValidator>();
             _ = builder.RegisterType<ZeroSsl>();
             WacsJson.Configure(builder);
-            _ = builder.RegisterInstance(log).As<Real.ILogService>();
+            _ = builder.RegisterInstance(log).As<Real.ILogService>().As<IAcmeLogger>();
             _ = builder.RegisterInstance(argumentsParser).As<ArgumentsParser>();
             _ = builder.RegisterType<Real.ArgumentsInputService>();
             _ = builder.RegisterInstance(pluginService).As<Real.IPluginService>();
@@ -68,7 +69,10 @@ namespace PKISharp.WACS.UnitTests.Mock
             _ = builder.RegisterType<LookupClientProvider>().SingleInstance();
             _ = builder.RegisterType<CacheService>().As<Real.ICacheService>().SingleInstance();
             _ = builder.RegisterType<CertificateService>().As<Real.ICertificateService>().SingleInstance();
-            _ = builder.RegisterType<Real.TaskSchedulerService>().SingleInstance();
+            if (OperatingSystem.IsWindows())
+            {
+                _ = builder.RegisterType<Real.TaskSchedulerService>().As<Real.IAutoRenewService>().SingleInstance();
+            }
             _ = builder.RegisterType<Real.NotificationService>().SingleInstance();
             _ = builder.RegisterType<NotificationTargetEmail>().SingleInstance();
             _ = builder.RegisterType<RenewalValidator>().SingleInstance();
@@ -77,7 +81,15 @@ namespace PKISharp.WACS.UnitTests.Mock
             _ = builder.RegisterType<RenewalManager>().SingleInstance();
             _ = builder.Register(c => (ISharingLifetimeScope)c.Resolve<ILifetimeScope>()).As<ISharingLifetimeScope>().ExternallyOwned();
 
-            return builder.Build();
+            var ret = builder.Build();
+            return ret.BeginLifetimeScope("wacs", builder =>
+            {
+                // Plugins
+                foreach (var plugin in pluginService.GetSecretServices())
+                {
+                    _ = builder.RegisterType(plugin.Backend);
+                }
+            });
         }
     }
 }

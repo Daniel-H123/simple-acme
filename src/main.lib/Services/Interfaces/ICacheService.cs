@@ -1,5 +1,4 @@
 ﻿using PKISharp.WACS.DomainObjects;
-using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 
@@ -18,7 +17,7 @@ namespace PKISharp.WACS.Services
         CertificateInfoCache? CachedInfo(Order order);
         CertificateInfoCache? PreviousInfo(Renewal renewal, string order);
 
-        void Encrypt();
+        Task Encrypt();
         void Revoke(Renewal renewal);
     }
 }

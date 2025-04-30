@@ -23,13 +23,13 @@ namespace PKISharp.WACS.Configuration.Arguments
 
         // Basic options
 
-        [CommandLine(Description = "Address of the ACMEv2 server to use. The default endpoint can be modified in settings.json.")]
+        [CommandLine(Description = "Address of the ACME server to use. The default endpoint can be modified in settings.json.")]
         public string BaseUri { get; set; } = "";
 
-        [CommandLine(Description = "Import scheduled renewals from version 1.9.x in unattended mode.")]
+        [CommandLine(Description = "Import scheduled renewals from version 1.9.x in unattended mode.", Obsolete = true)]
         public bool Import { get; set; }
 
-        [CommandLine(Description = "[--import] When importing scheduled renewals from version 1.9.x, this argument can change the address of the ACMEv1 server to import from. The default endpoint to import from can be modified in settings.json.")]
+        [CommandLine(Description = "[--import] When importing scheduled renewals from version 1.9.x, this argument can change the address of the ACMEv1 server to import from. The default endpoint to import from can be modified in settings.json.", Obsolete = true)]
         public string? ImportBaseUri { get; set; }
 
         [CommandLine(Description = "Enables testing behaviours in the program which may help with troubleshooting. By default this also switches the --baseuri to the ACME test endpoint. The default endpoint for test mode can be modified in settings.json.")]
@@ -41,8 +41,14 @@ namespace PKISharp.WACS.Configuration.Arguments
         [CommandLine(Description = "Show information about all available command line options.")]
         public bool Help { get; set; }
 
+        [CommandLine(Description = "Generate YML describing command line arguments for the documentation website.", Obsolete = true)]
+        public bool Docs { get; set; }
+
         [CommandLine(Description = "Show version information.")]
         public bool Version { get; set; }
+
+        [CommandLine(Description = "Output configuration information in JSON format.")]
+        public bool Config { get; set; }
 
         // Renewal
 
@@ -57,7 +63,7 @@ namespace PKISharp.WACS.Configuration.Arguments
 
         // Commands
 
-        [CommandLine(Description = "Create an ACME service account.")]
+        [CommandLine(Description = "Create an ACME service account without creating a certificate.")]
         public bool Register { get; set; }
 
         [CommandLine(Description = "Cancel renewal specified by the --friendlyname or --id arguments.")]
@@ -103,6 +109,17 @@ namespace PKISharp.WACS.Configuration.Arguments
 
         [CommandLine(Description = "Specify which installation plugins to use (if any). This may be a comma-separated list.")]
         public string? Installation { get; set; }
+
+        // Vault manipulation
+
+        [CommandLine(Description = "Store a new value in the secret vault, or overwrite an existing one.")]
+        public bool VaultStore { get; set; }
+
+        [CommandLine(Description = "Key to target for vault commands. This should be in the format like vault://json/mysecret.")]
+        public string? VaultKey { get; set; }
+
+        [CommandLine(Description = "Secret to save in the vault.", Secret = true)]
+        public string? VaultSecret { get; set; }
 
         // Misc
 

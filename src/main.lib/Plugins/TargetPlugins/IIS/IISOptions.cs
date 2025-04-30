@@ -1,7 +1,6 @@
 ﻿using PKISharp.WACS.Plugins.Base.Options;
 using PKISharp.WACS.Services;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text.Json.Serialization;
 
 namespace PKISharp.WACS.Plugins.TargetPlugins
@@ -53,7 +52,7 @@ namespace PKISharp.WACS.Plugins.TargetPlugins
             }
 
             // Site filter
-            if (IncludeSiteIds != null && IncludeSiteIds.Any())
+            if (IncludeSiteIds != null && IncludeSiteIds.Count != 0)
             {
                 input.Show("Sites", string.Join(",", IncludeSiteIds), level: 1);
             } 
@@ -71,7 +70,7 @@ namespace PKISharp.WACS.Plugins.TargetPlugins
             {
                 input.Show("Pattern", IncludePattern, level: 1);
             }
-            else if (IncludeHosts != null && IncludeHosts.Any())
+            else if (IncludeHosts != null && IncludeHosts.Count != 0)
             {
                 input.Show("Hosts", string.Join(',', IncludeHosts), level: 1);
             } 
@@ -81,7 +80,7 @@ namespace PKISharp.WACS.Plugins.TargetPlugins
             }
 
             // Last-minute exclude
-            if (ExcludeHosts != null && ExcludeHosts.Any())
+            if (ExcludeHosts != null && ExcludeHosts.Count != 0)
             {
                 input.Show("Exclude", string.Join(',', ExcludeHosts), level: 1);
             }

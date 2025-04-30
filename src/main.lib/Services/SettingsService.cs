@@ -4,9 +4,11 @@ using PKISharp.WACS.Configuration.Settings;
 using PKISharp.WACS.Extensions;
 using System;
 using System.IO;
+using System.Runtime.Versioning;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text.Json;
+using static System.Environment;
 
 namespace PKISharp.WACS.Services
 {
@@ -15,6 +17,7 @@ namespace PKISharp.WACS.Services
         private readonly ILogService _log;
         private readonly Settings _settings;
         private readonly MainArguments? _arguments;
+
         public bool Valid { get; private set; } = false;
 
         public SettingsService(ILogService log, ArgumentsParser parser)
@@ -37,7 +40,7 @@ namespace PKISharp.WACS.Services
                 if (!settingsTemplate.Exists)
                 {
                     _log.Warning("Unable to locate {settings}", settingsFileName);
-                } 
+                }
                 else
                 {
                     _log.Verbose("Copying {settingsFileTemplateName} to {settingsFileName}", settingsFileTemplateName, settingsFileName);
@@ -99,21 +102,36 @@ namespace PKISharp.WACS.Services
             {
                 return;
             }
+            try
+            {     
+                _ = BaseUri;
+            } 
+            catch
+            {
+                _log.Error("Error choosing ACME server");
+                return;
+            }
 
-            var configRoot = ChooseConfigPath();
-            Client.ConfigurationPath = Path.Combine(configRoot, BaseUri.CleanUri());
-            Client.LogPath = ChooseLogPath();
-            Cache.Path = ChooseCachePath();
+            try
+            {
+                var configRoot = ChooseConfigPath();
+                Client.ConfigurationPath = Path.Combine(configRoot, BaseUri.CleanUri());
+                Client.LogPath = ChooseLogPath();
+                Cache.Path = ChooseCachePath();
 
-            EnsureFolderExists(configRoot, "configuration", true);
-            EnsureFolderExists(Client.ConfigurationPath, "configuration", false);
-            EnsureFolderExists(Client.LogPath, "log", !Client.LogPath.StartsWith(Client.ConfigurationPath));
-            EnsureFolderExists(Cache.Path, "cache", !Client.LogPath.StartsWith(Client.ConfigurationPath));
+                EnsureFolderExists(configRoot, "configuration", true);
+                EnsureFolderExists(Client.ConfigurationPath, "configuration", false);
+                EnsureFolderExists(Client.LogPath, "log", !Client.LogPath.StartsWith(Client.ConfigurationPath));
+                EnsureFolderExists(Cache.Path, "cache", !Client.LogPath.StartsWith(Client.ConfigurationPath));
 
-            // Configure disk logger
-            _log.SetDiskLoggingPath(Client.LogPath);
-
-
+                // Configure disk logger
+                _log.ApplyClientSettings(Client);
+            }
+            catch (Exception ex)
+            {
+                _log.Error(ex, "Error initializing program");
+                return;
+            }
 
             Valid = true;
         }
@@ -122,16 +140,38 @@ namespace PKISharp.WACS.Services
         {
             get
             {
-                var ret = !string.IsNullOrEmpty(_arguments?.BaseUri)
-                    ? new Uri(_arguments.BaseUri)
-                    : _arguments?.Test ?? false ?
-                        Acme.DefaultBaseUriTest :
-                        Acme.DefaultBaseUri;
-                if (ret == null)
+                if (!string.IsNullOrWhiteSpace(_arguments?.BaseUri))
                 {
-                    throw new Exception("Unable to determine BaseUri");
+                    try
+                    {
+                        return new Uri(_arguments.BaseUri);
+                    } 
+                    catch (Exception ex)
+                    {
+                        _log.Error(ex, "Invalid --baseuri specified");
+                        throw;
+                    }
                 }
-                return ret;
+                if (_arguments?.Test ?? false)
+                {
+                    if (Acme.DefaultBaseUriTest?.IsAbsoluteUri ?? false)
+                    {
+                        return Acme.DefaultBaseUriTest;
+                    } 
+                    else
+                    {
+                        _log.Warning("Setting Acme.DefaultBaseUriTest is unspecified or invalid, fallback to Acme.DefaultBaseUri");
+                    }
+                }
+                if (Acme.DefaultBaseUri?.IsAbsoluteUri ?? false)
+                {
+                    return Acme.DefaultBaseUri;
+                }
+                else
+                {
+                    _log.Error("Setting Acme.DefaultBaseUri is unspecified or invalid, please specify a valid absolute URI");
+                    throw new Exception();
+                }
             }
         }
 
@@ -156,9 +196,16 @@ namespace PKISharp.WACS.Services
                     configRoot = configRootWithClient;
                 }
             }
+            else if (OperatingSystem.IsWindows() || Environment.IsPrivilegedProcess)
+            {
+                var appData = Environment.GetFolderPath(SpecialFolder.CommonApplicationData, SpecialFolderOption.DoNotVerify);
+                configRoot = Path.Combine(appData, Client.ClientName);
+            }
             else
             {
-                var appData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+                // For non-elevated Linux we have to fall back to the user directory
+                // These user will not be able to auto-renew.
+                var appData = Environment.GetFolderPath(SpecialFolder.LocalApplicationData, SpecialFolderOption.DoNotVerify);
                 configRoot = Path.Combine(appData, Client.ClientName);
             }
             return configRoot;
@@ -221,13 +268,40 @@ namespace PKISharp.WACS.Services
             }
             if (checkAcl)
             {
-                EnsureFolderAcl(di, label, created);
+                if (OperatingSystem.IsWindows())
+                {
+                    EnsureFolderAcl(di, label, created);
+                }
+                else if (OperatingSystem.IsLinux())
+                {
+                    EnsureFolderAclLinux(di, label, created);
+                }
+              
             }
         }
+
+        [SupportedOSPlatform("linux")]
+        private void EnsureFolderAclLinux(DirectoryInfo di, string label, bool created) {
+            var currentMode = File.GetUnixFileMode(di.FullName);
+            if (currentMode.HasFlag(UnixFileMode.OtherRead) || 
+                currentMode.HasFlag(UnixFileMode.OtherExecute) ||
+                currentMode.HasFlag(UnixFileMode.OtherWrite))
+            {
+                if (!created)
+                {
+                    _log.Warning("All users currently have access to {path}.", di.FullName);
+                    _log.Warning("We will now try to limit access to improve security...", label, di.FullName);
+                }
+                var newMode = currentMode & ~(UnixFileMode.OtherRead | UnixFileMode.OtherExecute | UnixFileMode.OtherWrite);
+                _log.Warning("Change file mode in {label} to {newMode}", label, newMode);
+                File.SetUnixFileMode(di.FullName, newMode);
+            }
+        } 
 
         /// <summary>
         /// Ensure proper access rights to a folder
         /// </summary>
+        [SupportedOSPlatform("windows")]
         private void EnsureFolderAcl(DirectoryInfo di, string label, bool created)
         {
             // Test access control rules
@@ -290,6 +364,7 @@ namespace PKISharp.WACS.Services
         /// </summary>
         /// <param name="di"></param>
         /// <returns></returns>
+        [SupportedOSPlatform("windows")]
         private static (bool, bool) UsersHaveAccess(DirectoryInfo di)
         {
             var acl = di.GetAccessControl();

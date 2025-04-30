@@ -7,14 +7,8 @@ using System.Threading.Tasks;
 
 namespace PKISharp.WACS.Plugins.ValidationPlugins.Http
 {
-    internal class FtpOptionsFactory : HttpValidationOptionsFactory<FtpOptions>
+    internal class FtpOptionsFactory(ILogService log, Target target, ArgumentsInputService arguments) : HttpValidationOptionsFactory<FtpOptions, FtpArguments>(arguments, target)
     {
-        private readonly ILogService _log;
-
-        public FtpOptionsFactory(ILogService log, Target target, ArgumentsInputService arguments) :
-            base(arguments, target)
-            => _log = log;
-
         public override bool PathIsValid(string path)
         {
             try
@@ -24,25 +18,25 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Http
             }
             catch (Exception ex)
             {
-                _log.Error(ex, "Invalid path");
+                log.Error(ex, "Invalid path");
                 return false;
             }
         }
 
         public override string[] WebrootHint(bool allowEmpty)
         {
-            return new[] {
+            return [
                 "FTP path",
                 "Example, ftp://domain.com:21/site/wwwroot/",
                 "Example, ftps://domain.com:990/site/wwwroot/"
-            };
+            ];
         }
 
         public override async Task<FtpOptions?> Default()
         {
             return new FtpOptions(await BaseDefault())
             {
-                Credential = await NetworkCredentialOptions.Create(_arguments)
+                Credential = await NetworkCredentialOptions.Create<FtpArguments>(_arguments)
             };
         }
 
@@ -51,7 +45,7 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Http
             var baseOptions = await BaseAquire(inputService);
             return new FtpOptions(baseOptions)
             {
-                Credential = await NetworkCredentialOptions.Create(_arguments, inputService, "FTP(S) server")
+                Credential = await NetworkCredentialOptions.Create<FtpArguments>(_arguments, inputService, "FTP(S) server")
             };
         }
 
@@ -63,7 +57,7 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Http
             }
             if (options.Credential != null)
             {
-                foreach (var x in options.Credential.Describe(_arguments))
+                foreach (var x in options.Credential.Describe<FtpArguments>(_arguments))
                 {
                     yield return x;
                 }

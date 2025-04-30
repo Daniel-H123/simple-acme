@@ -9,10 +9,6 @@ namespace PKISharp.WACS.Plugins.InstallationPlugins
         private const string SslPortParameterName = "sslport";
         private const string SslIpParameterName = "sslipaddress";
 
-        public override string Name => "IIS plugin";
-        public override string Group => "Installation";
-        public override string Condition => "--installation iis";
-
         [CommandLine(Description = "Specify site to install new bindings to. Defaults to the source if that is an IIS site.")]
         public long? InstallationSiteId { get; set; }
 
@@ -25,7 +21,7 @@ namespace PKISharp.WACS.Plugins.InstallationPlugins
         [CommandLine(Name = SslIpParameterName, Description = "IP address to use for newly created HTTPS bindings. Defaults to " + IISClient.DefaultBindingIp + ".")]
         public string? SSLIPAddress { get; set; }
 
-        [CommandLine(Description = "Flag to indicate whether new bindings should be created. Defaults to " + IISClient.DefaultUpdateOnly + ".")]
+        [CommandLine(Description = "Flag to indicate whether new bindings should be created.")]
         public bool UpdateOnly { get; set; } = IISClient.DefaultUpdateOnly;
     }
 }

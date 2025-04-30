@@ -8,6 +8,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.Versioning;
 using System.Security.AccessControl;
 using System.Security.Cryptography.X509Certificates;
 using System.Security.Principal;
@@ -17,19 +18,20 @@ using static System.IO.FileSystemAclExtensions;
 
 namespace PKISharp.WACS.Plugins.StorePlugins
 {
-    [IPlugin.Plugin<
+    [SupportedOSPlatform("windows")]
+    [IPlugin.Plugin1<
         CertificateStoreOptions, CertificateStoreOptionsFactory, 
-        CertificateStoreCapability, WacsJsonPlugins>
+        CertificateStoreCapability, WacsJsonPlugins, CertificateStoreArguments>
         ("e30adc8e-d756-4e16-a6f2-450f784b1a97", 
-        Name, "Windows Certificate Store (Local Computer)")]
+        Trigger, "Add to Windows Certificate Store (Local Computer)", 
+        Name = "Windows Certificate Store")]
     internal class CertificateStore : IStorePlugin, IDisposable
     {
-        internal const string Name = "CertificateStore";
+        internal const string Trigger = "CertificateStore";
         private const string DefaultStoreName = nameof(StoreName.My);
         private readonly ILogService _log;
         private readonly string _storeName;
         private readonly IIISClient _iisClient;
-        private readonly ISettingsService _settings;
         private readonly CertificateStoreOptions _options;
         private readonly FindPrivateKey _keyFinder;
         private readonly CertificateStoreClient _storeClient;
@@ -43,7 +45,6 @@ namespace PKISharp.WACS.Plugins.StorePlugins
             _log = log;
             _iisClient = iisClient;
             _options = options;
-            _settings = settings;
             _keyFinder = keyFinder;
             _storeName = options.StoreName ?? DefaultStore(settings, iisClient);
             if (string.Equals(_storeName, "Personal", StringComparison.InvariantCultureIgnoreCase) ||
@@ -94,7 +95,7 @@ namespace PKISharp.WACS.Plugins.StorePlugins
             }
             if (exportable)
             {
-                _options.AclRead ??= new List<string>();
+                _options.AclRead ??= [];
                 if (!_options.AclRead.Contains("administrators")) {
                     _log.Information("Add local administators to Private Key ACL to allow export");
                     _options.AclRead.Add("administrators");
@@ -109,7 +110,7 @@ namespace PKISharp.WACS.Plugins.StorePlugins
                 SetAcl(existing, _options.AclRead, FileSystemRights.Read);
             }
             return Task.FromResult<StoreInfo?>(new StoreInfo() {
-                Name = Name,
+                Name = Trigger,
                 Path = _storeName
             });
         }
@@ -147,8 +148,7 @@ namespace PKISharp.WACS.Plugins.StorePlugins
                         }
                         catch (Exception ex)
                         {
-                            _log.Warning("Unable to set {rights} rights for {account}: {ex}", rights, account, ex.Message);
-                            _log.Verbose("{ex}", ex.StackTrace);
+                            _log.Warning(ex, "Unable to set {rights} rights for {account}", rights, account);
                         }
                     }
                     file.SetAccessControl(fs);

@@ -1,15 +1,9 @@
 ﻿using Autofac;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Org.BouncyCastle.Asn1.Pkcs;
-using Org.BouncyCastle.Pkcs;
 using PKISharp.WACS.Clients;
 using PKISharp.WACS.Plugins.InstallationPlugins;
 using PKISharp.WACS.Services;
 using PKISharp.WACS.UnitTests.Mock;
-using System;
-using System.Security.Cryptography;
-using System.Security.Cryptography.Pkcs;
-using System.Security.Cryptography.X509Certificates;
 using Real = PKISharp.WACS.Services;
 
 namespace PKISharp.WACS.UnitTests.Tests.SecretServiceTests
@@ -24,7 +18,7 @@ namespace PKISharp.WACS.UnitTests.Tests.SecretServiceTests
         [TestInitialize]
         public void Init()
         {
-            _container = new MockContainer().TestScope();
+            _container = MockContainer.TestScope();
             var secretService = _container.Resolve<Real.ISecretService>();
             secretService.PutSecret(theKey, theSecret);
         }
@@ -33,7 +27,7 @@ namespace PKISharp.WACS.UnitTests.Tests.SecretServiceTests
         public void Direct()
         {
             var secondSecret = _container!.Resolve<Real.ISecretService>();
-            var restoredSecret = secondSecret.GetSecret(theKey);
+            var restoredSecret = secondSecret.GetSecret(theKey).Result;
             Assert.AreEqual(theSecret, restoredSecret);
         }
 
@@ -42,7 +36,7 @@ namespace PKISharp.WACS.UnitTests.Tests.SecretServiceTests
         {
             var secretService = _container!.Resolve<Real.ISecretService>();
             var manager = _container!.Resolve<Real.SecretServiceManager>();
-            var restoredSecret = manager.EvaluateSecret($"{SecretServiceManager.VaultPrefix}{secretService.Prefix}/{theKey}");
+            var restoredSecret = manager.EvaluateSecret($"{SecretServiceManager.VaultPrefix}{secretService.Prefix}/{theKey}").Result;
             Assert.AreEqual(theSecret, restoredSecret);
         }
 
@@ -60,7 +54,7 @@ namespace PKISharp.WACS.UnitTests.Tests.SecretServiceTests
                 null,
                 info, 
                 null, 
-                false);
+                false).Result;
             Assert.AreEqual(theSecret, output);
 
             var outputCensor = scriptInstaller.ReplaceParameters(
@@ -68,7 +62,7 @@ namespace PKISharp.WACS.UnitTests.Tests.SecretServiceTests
                 null,
                 info,
                 null,
-                true);
+                true).Result;
             Assert.AreEqual(placeholder, outputCensor);
         }
     }

@@ -4,50 +4,40 @@ using PKISharp.WACS.Plugins.Interfaces;
 using PKISharp.WACS.Plugins.ValidationPlugins.Dns;
 using PKISharp.WACS.Plugins.ValidationPlugins.Dnsexit;
 using PKISharp.WACS.Services;
-using System.Runtime.Versioning;
-
-[assembly: SupportedOSPlatform("windows")]
 
 namespace PKISharp.WACS.Plugins.ValidationPlugins
 {
-    [IPlugin.Plugin<
+    [IPlugin.Plugin1<
         DnsexitOptions, DnsexitOptionsFactory, 
-        DnsValidationCapability, DnsexitJson>
+        DnsValidationCapability, DnsexitJson, DnsexitArguments>
         ("C9017182-1000-4257-A8DA-0553CD1490EC", 
-        "Dnsexit", "Create verification records in Dnsexit DNS")]
-    internal class DnsExitDnsValidation : DnsValidation<DnsExitDnsValidation>
+        "DNSExit", "Create verification records in DNSExit DNS",
+        External = true)]
+    internal class DnsExitDnsValidation(
+        LookupClientProvider dnsClient,
+        ILogService logService,
+        ISettingsService settings,
+        DomainParseService domainParser,
+        DnsexitOptions options,
+        SecretServiceManager ssm,
+        IProxyService proxyService) : DnsValidation<DnsExitDnsValidation>(dnsClient, logService, settings)
     {
-        private readonly DnsManagementClient _client;
-        private readonly DomainParseService _domainParser;
-
-        public DnsExitDnsValidation(
-            LookupClientProvider dnsClient,
-            ILogService logService,
-            ISettingsService settings,
-            DomainParseService domainParser,
-            DnsexitOptions options,
-            SecretServiceManager ssm,
-            IProxyService proxyService)
-            : base(dnsClient, logService, settings)
-        {
-            _client = new DnsManagementClient(
-                ssm.EvaluateSecret(options.ApiKey) ?? "", 
+        private readonly DnsManagementClient _client = new(
+                ssm.EvaluateSecret(options.ApiKey).Result ?? "",
                 logService, proxyService);
-            _domainParser = domainParser;
-        }
 
         public override async Task<bool> CreateRecord(DnsValidationRecord record)
         {
             try
             {
-                var domain = _domainParser.GetRegisterableDomain(record.Authority.Domain);
+                var domain = domainParser.GetRegisterableDomain(record.Authority.Domain);
                 var recordName = RelativeRecordName(domain, record.Authority.Domain);
                 await _client.CreateRecord(domain, recordName, RecordType.TXT, record.Value);
                 return true;
             }
             catch (Exception ex)
             {
-                _log.Warning($"Unable to create record at DnsExit: {ex.Message}");
+                _log.Warning(ex, $"Unable to create record at DnsExit");
                 return false;
             }
         }
@@ -56,13 +46,13 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins
         {
             try
             {
-                var domain = _domainParser.GetRegisterableDomain(record.Authority.Domain);
+                var domain = domainParser.GetRegisterableDomain(record.Authority.Domain);
                 var recordName = RelativeRecordName(domain, record.Authority.Domain);
                 await _client.DeleteRecord(domain, recordName, RecordType.TXT);
             }
             catch (Exception ex)
             {
-                _log.Warning($"Unable to delete record from DnsExit: {ex.Message}");
+                _log.Warning(ex, $"Unable to delete record from DnsExit");
             }
         }
     }

@@ -3,46 +3,42 @@ using PKISharp.WACS.Plugins.Base.Capabilities;
 using PKISharp.WACS.Plugins.Interfaces;
 using PKISharp.WACS.Services;
 using System;
-using System.Runtime.Versioning;
+using System.Net.Http;
 using System.Threading.Tasks;
 using TransIp.Library;
 using TransIp.Library.Dto;
 
-[assembly: SupportedOSPlatform("windows")]
-
 namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
 {
-    [IPlugin.Plugin<
+    [IPlugin.Plugin1<
         TransIpOptions, TransIpOptionsFactory, 
-        DnsValidationCapability, TransIpJson>
+        DnsValidationCapability, TransIpJson, TransIpArguments>
         ("c49a7a9a-f8c9-494a-a6a4-c6b9daae7d9d", 
-        "TransIp", "Create verification records at TransIp")]
-    internal sealed class TransIp : DnsValidation<TransIp>
+        "TransIP", "Create verification records at TransIP",
+        External = true)]
+    internal sealed class TransIp(
+        LookupClientProvider dnsClient,
+        ILogService log,
+        IProxyService proxy,
+        ISettingsService settings,
+        DomainParseService domainParser,
+        SecretServiceManager ssm,
+        TransIpOptions options) : DnsValidation<TransIp, DnsService>(dnsClient, log, settings, proxy)
     {
-        private readonly DnsService _dnsService;
-        private readonly DomainParseService _domainParser;
-
-        public TransIp(
-            LookupClientProvider dnsClient,
-            ILogService log,
-            IProxyService proxy,
-            ISettingsService settings,
-            DomainParseService domainParser,
-            SecretServiceManager ssm,
-            TransIpOptions options) : base(dnsClient, log, settings)
+        protected override async Task<DnsService> CreateClient(HttpClient httpClient)
         {
-            var auth = new AuthenticationService(options.Login, ssm.EvaluateSecret(options.PrivateKey), proxy);
-            _dnsService = new DnsService(auth, proxy);
-            _domainParser = domainParser;
+            var auth = new AuthenticationService(options.Login, await ssm.EvaluateSecret(options.PrivateKey), httpClient);
+            return new DnsService(auth, httpClient);
         }
 
         public override async Task<bool> CreateRecord(DnsValidationRecord record)
         {
             try
             {
-                var domain = _domainParser.GetRegisterableDomain(record.Authority.Domain);
+                var domain = domainParser.GetRegisterableDomain(record.Authority.Domain);
                 var recordName = RelativeRecordName(domain, record.Authority.Domain);
-                await _dnsService.CreateDnsEntry(
+                var dnsService = await GetClient();
+                await dnsService.CreateDnsEntry(
                     domain,
                     new DnsEntry()
                     {
@@ -54,7 +50,7 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
             }
             catch (Exception ex)
             {
-                _log.Warning($"Error creating TXT record: {ex.Message}");
+                _log.Warning(ex, $"Error creating TXT record");
                 return false;
             }
         }
@@ -63,9 +59,10 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
         {
             try
             {
-                var domain = _domainParser.GetRegisterableDomain(record.Authority.Domain);
+                var dnsService = await GetClient();
+                var domain = domainParser.GetRegisterableDomain(record.Authority.Domain);
                 var recordName = RelativeRecordName(domain, record.Authority.Domain);
-                await _dnsService.DeleteDnsEntry(
+                await dnsService.DeleteDnsEntry(
                     domain,
                     new DnsEntry()
                     {
@@ -76,7 +73,7 @@ namespace PKISharp.WACS.Plugins.ValidationPlugins.Dns
             }
             catch (Exception ex)
             {
-                _log.Warning($"Error deleting TXT record: {ex.Message}");
+                _log.Warning(ex, $"Error deleting TXT record");
             }
         }
     }
