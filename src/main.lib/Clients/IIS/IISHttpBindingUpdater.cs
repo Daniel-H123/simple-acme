@@ -32,10 +32,10 @@ namespace PKISharp.WACS.Clients.IIS
         /// <summary>
         /// Update/create bindings for all host names in the certificate
         /// </summary>
-        /// <param name="target"></param>
-        /// <param name="flags"></param>
-        /// <param name="thumbprint"></param>
-        /// <param name="store"></param>
+        /// <param name="identifiers"></param>
+        /// <param name="bindingOptions"></param>
+        /// <param name="allIdentifiers"></param>
+        /// <param name="oldCertificate"></param>
         public int AddOrUpdateBindings(
             IEnumerable<Identifier> identifiers,
             BindingOptions bindingOptions,
@@ -172,14 +172,9 @@ namespace PKISharp.WACS.Clients.IIS
         /// <summary>
         /// Create or update a single binding in a single site
         /// </summary>
+        /// <param name="allBindings"></param>
         /// <param name="site"></param>
-        /// <param name="host"></param>
-        /// <param name="flags"></param>
-        /// <param name="thumbprint"></param>
-        /// <param name="store"></param>
-        /// <param name="port"></param>
-        /// <param name="ipAddress"></param>
-        /// <param name="fuzzy"></param>
+        /// <param name="bindingOptions"></param>
         private (IIISBinding?, int) AddOrUpdateBindings(TBinding[] allBindings, TSite site, BindingOptions bindingOptions)
         {
             if (bindingOptions.Host == null)
@@ -268,8 +263,7 @@ namespace PKISharp.WACS.Clients.IIS
         /// <summary>
         /// Sanity checks, prevent bad bindings from messing up IIS
         /// </summary>
-        /// <param name="start"></param>
-        /// <param name="match"></param>
+        /// <param name="options"></param>
         /// <param name="allBindings"></param>
         /// <returns></returns>
         private bool AllowAdd(BindingOptions options, TBinding[] allBindings)
@@ -312,6 +306,7 @@ namespace PKISharp.WACS.Clients.IIS
         /// <param name="start"></param>
         /// <param name="match"></param>
         /// <param name="allBindings"></param>
+        /// <param name="modified"></param>
         /// <returns></returns>
         private bool UpdateExistingBindingFlags(SSLFlags start, TBinding match, TBinding[] allBindings, out SSLFlags modified)
         {
@@ -347,6 +342,7 @@ namespace PKISharp.WACS.Clients.IIS
         /// Make sure the flags are set correctly for updating the binding,
         /// because special conditions apply to the default binding
         /// </summary>
+        /// <param name="newBinding"></param>
         /// <param name="host"></param>
         /// <param name="flags"></param>
         /// <returns></returns>
@@ -400,12 +396,7 @@ namespace PKISharp.WACS.Clients.IIS
         /// Create a new binding
         /// </summary>
         /// <param name="site"></param>
-        /// <param name="host"></param>
-        /// <param name="flags"></param>
-        /// <param name="thumbprint"></param>
-        /// <param name="store"></param>
-        /// <param name="port"></param>
-        /// <param name="IP"></param>
+        /// <param name="options"></param>
         private IIISBinding AddBinding(TSite site, BindingOptions options)
         {
             options = options.WithFlags(CheckFlags(true, options.Host, options.Flags));
@@ -464,8 +455,9 @@ namespace PKISharp.WACS.Clients.IIS
         /// 10: default match (catch-all binding)
         /// 0: no match
         /// </summary>
-        /// <param name=""></param>
-        /// <param name=""></param>
+        /// <param name="iis"></param>
+        /// <param name="certificate"></param>
+        /// <param name="flags"></param>
         /// <returns></returns>
         private int Fits(IIISBinding iis, Identifier certificate, SSLFlags flags)
         {
